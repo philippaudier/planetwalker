@@ -974,13 +974,14 @@ namespace Planetwalker.Tests
                 var ribbons = new RiverRibbonBuilder();
                 ribbons.BuildGeometry(network, sampler, planet, new RiverSettings(), layer);
                 Assert.AreEqual(0, ribbons.LastDiagnostics.LakeInflowGaps, "Seed " + seed + ": inflows reach the water");
-                IReadOnlyList<Vector3> vertices = ribbons.Vertices;
                 for (int ribbon = 0; ribbon < ribbons.RibbonCount; ribbon++)
                 {
                     RiverReach reach = layer.GetReach(ribbons.GetRibbonReach(ribbon));
                     for (int v = ribbons.GetRibbonStart(ribbon); v < ribbons.GetRibbonStart(ribbon + 1); v += 2)
                     {
-                        Vector3 center = ((vertices[v] + vertices[v + 1]) * 0.5f).normalized;
+                        // The sample direction itself (what the builder classifies): the midpoint of
+                        // the two edge vertices differs by float noise and can flip on the shoreline.
+                        Vector3 center = ribbons.SampleDirections[v];
                         for (int lake = 0; lake < lakes.Count; lake++)
                         {
                             if (LakeMeshBuilder.IsSubmerged(lakes, planet, lake, center))

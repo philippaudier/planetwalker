@@ -127,6 +127,9 @@ namespace Planetwalker.Rendering
 
         public IReadOnlyList<int> Triangles => triangles;
 
+        /// <summary>Per vertex: the unit direction of its ribbon sample (centerline), also its normal.</summary>
+        public IReadOnlyList<Vector3> SampleDirections => normals;
+
         /// <summary>True for vertices of samples under lake water (drawn without lift, under the surface).</summary>
         public bool IsVertexSubmerged(int vertex) => widths[vertex].y > 0.5f;
 
