@@ -1,7 +1,10 @@
 using System;
 using System.Diagnostics;
+using System.IO;
 using Planetwalker.CameraControl;
 using Planetwalker.Core;
+using Planetwalker.Library;
+using Planetwalker.Persistence;
 using Planetwalker.Rendering;
 using Planetwalker.UI;
 using UnityEngine;
@@ -13,12 +16,18 @@ namespace Planetwalker.Bootstrap
     /// Entry point of the Genesis scene. Owns the editable <see cref="PlanetDefinition"/>,
     /// regenerates the planet on demand, and makes sure every required scene object
     /// exists (planet visual, star, orbit camera, UI) so a scene containing only this
-    /// component is already playable.
+    /// component is already playable. Hosts the world archive session (V0.1.3A).
     /// </summary>
     [DefaultExecutionOrder(-100)]
     [DisallowMultipleComponent]
-    public sealed class PlanetBootstrap : MonoBehaviour
+    public sealed class PlanetBootstrap : MonoBehaviour, IWorldHost
     {
+        /// <summary>World archives folder, relative to <c>Application.persistentDataPath</c>.</summary>
+        public const string WorldsFolder = "Planetwalker/Worlds";
+
+        /// <summary>World thumbnails folder, relative to <c>Application.persistentDataPath</c> (V0.1.3B).</summary>
+        public const string ThumbnailsFolder = "Planetwalker/Thumbnails";
+
         [SerializeField] PlanetDefinition definition = new PlanetDefinition();
 
         [Header("Scene References (created automatically when empty)")]
@@ -34,6 +43,8 @@ namespace Planetwalker.Bootstrap
         [SerializeField] Color ambientColor = new Color(0.10f, 0.11f, 0.14f);
 
         System.Random seedRandom;
+        WorldSession worlds;
+        WorldThumbnailUpdater thumbnailUpdater;
 
         /// <summary>Raised after every successful (re)generation.</summary>
         public event Action<PlanetInstance> PlanetGenerated;
@@ -50,6 +61,90 @@ namespace Planetwalker.Bootstrap
         public float LastGenerationMilliseconds { get; private set; }
 
         public int GenerationCount { get; private set; }
+
+        /// <summary>Raised when settings are edited in the inspector (editor only): the world may have unsaved changes.</summary>
+        public event Action SettingsEdited;
+
+        /// <summary>
+        /// The current world and its archive (created on first use; no file is touched until an archive action).
+        /// Archives live in <see cref="DefaultWorldsDirectory"/>.
+        /// </summary>
+        public WorldSession Worlds => worlds ??= new WorldSession(this, new WorldArchiveStore(DefaultWorldsDirectory),
+            new WorldThumbnailStore(DefaultThumbnailsDirectory));
+
+        /// <summary>Captures world thumbnails after saves (V0.1.3B); ticked by <see cref="Update"/> in Play mode.</summary>
+        public WorldThumbnailUpdater ThumbnailUpdater
+        {
+            get
+            {
+                if (thumbnailUpdater == null && visual != null && Worlds.Thumbnails != null)
+                {
+                    thumbnailUpdater = new WorldThumbnailUpdater(visual, Worlds, Worlds.Thumbnails);
+                }
+                return thumbnailUpdater;
+            }
+        }
+
+        /// <summary>Absolute path of the world archives: persistentDataPath/Planetwalker/Worlds (Editor and builds).</summary>
+        public static string DefaultWorldsDirectory => Path.Combine(Application.persistentDataPath, WorldsFolder);
+
+        /// <summary>Absolute path of the world thumbnails: persistentDataPath/Planetwalker/Thumbnails.</summary>
+        public static string DefaultThumbnailsDirectory => Path.Combine(Application.persistentDataPath, ThumbnailsFolder);
+
+        /// <summary>Uses other archive / thumbnail stores (tests: isolated temporary folders). Resets the session.</summary>
+        public void UseWorldStore(WorldArchiveStore store, WorldThumbnailStore thumbnails = null)
+        {
+            thumbnailUpdater?.Detach();
+            thumbnailUpdater = null;
+            worlds = new WorldSession(this, store, thumbnails);
+        }
+
+        /// <summary>
+        /// Discovers a new world (World Library "New World"): a new random seed with the current settings, one
+        /// regeneration, and a new unsaved identity. The caller protects unsaved changes first.
+        /// </summary>
+        public void CreateNewWorld()
+        {
+            RandomizeSeed();
+            Regenerate();
+            Worlds.BeginNewWorld();
+        }
+
+        void Update()
+        {
+            // Pending thumbnail capture only (free otherwise).
+            if (Application.isPlaying && worlds != null)
+            {
+                ThumbnailUpdater?.Tick();
+            }
+        }
+
+        CameraPresentation IWorldHost.CaptureCamera()
+        {
+            if (orbitCamera == null)
+            {
+                return null;
+            }
+            return new CameraPresentation
+            {
+                yaw = Mathf.Repeat(orbitCamera.TargetYaw + 180f, 360f) - 180f,
+                pitch = Mathf.Clamp(orbitCamera.TargetPitch, -90f, 90f),
+                distance = Mathf.Clamp(orbitCamera.TargetDistance, 0.001f, 1000000f),
+            };
+        }
+
+        void IWorldHost.RestoreCamera(CameraPresentation camera)
+        {
+            if (orbitCamera != null && camera != null)
+            {
+                orbitCamera.SetView(camera.yaw, camera.pitch, camera.distance);
+            }
+        }
+
+        void OnValidate()
+        {
+            SettingsEdited?.Invoke();
+        }
 
         void Awake()
         {
@@ -86,6 +181,12 @@ namespace Planetwalker.Bootstrap
             {
                 // Frame the planet at startup; afterwards keep the user's view.
                 orbitCamera.FramePlanet(visual.BoundingRadius, first);
+            }
+            if (first)
+            {
+                // The startup planet is a new, unsaved world: its configuration is the unsaved-changes baseline.
+                Worlds.ResetBaseline();
+                _ = ThumbnailUpdater; // listens to saves from the start
             }
             PlanetGenerated?.Invoke(Current);
         }

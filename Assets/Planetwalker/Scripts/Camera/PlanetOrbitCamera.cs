@@ -106,6 +106,25 @@ namespace Planetwalker.CameraControl
             ApplyTransform();
         }
 
+        /// <summary>Orientation the camera is heading to (degrees; yaw unwrapped).</summary>
+        public float TargetYaw => targetYaw;
+        public float TargetPitch => targetPitch;
+        /// <summary>Distance the camera is heading to (rendering units).</summary>
+        public float TargetDistance => targetDistance;
+        public float MaxPitch => maxPitch;
+
+        /// <summary>
+        /// Jumps to a view (world archive restore, V0.1.3A): pitch and distance are clamped to the current
+        /// limits (call after <see cref="FramePlanet"/>); input and smoothing keep working from there.
+        /// </summary>
+        public void SetView(float yawDegrees, float pitchDegrees, float distanceUnits)
+        {
+            targetYaw = yaw = yawDegrees;
+            targetPitch = pitch = Mathf.Clamp(pitchDegrees, -maxPitch, maxPitch);
+            targetDistance = distance = Mathf.Clamp(distanceUnits, minDistance, maxDistance);
+            ApplyTransform();
+        }
+
         /// <summary>Smoothly returns to the default orientation and framing distance.</summary>
         public void ResetView()
         {

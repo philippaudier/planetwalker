@@ -14,21 +14,22 @@ namespace Planetwalker.UI
     /// <summary>
     /// Minimal runtime generation panel (uGUI): seed, regenerate, randomize, and a few
     /// live parameters. The layout is built in code so the scene needs no manual wiring.
+    /// The world archive section and browser are in PlanetGenerationPanel.Archive.cs (V0.1.3A).
     /// </summary>
-    public sealed class PlanetGenerationPanel : MonoBehaviour
+    public sealed partial class PlanetGenerationPanel : MonoBehaviour
     {
         const float PanelWidth = 410f;
         const float PanelMargin = 24f;
         const float SliderLabelWidth = 165f;
         const string PanelObjectName = "Panel";
-        const float RowHeight = 27f;
-        const int FontSize = 16;
+        internal const float RowHeight = 27f;
+        internal const int FontSize = 16;
 
-        static readonly Color PanelColor = new Color(0.04f, 0.05f, 0.08f, 0.82f);
-        static readonly Color ControlColor = new Color(0.16f, 0.19f, 0.25f, 1f);
-        static readonly Color AccentColor = new Color(0.45f, 0.68f, 0.86f, 1f);
-        static readonly Color TextColor = new Color(0.88f, 0.90f, 0.93f, 1f);
-        static readonly Color MutedTextColor = new Color(0.60f, 0.64f, 0.70f, 1f);
+        internal static readonly Color PanelColor = new Color(0.04f, 0.05f, 0.08f, 0.82f);
+        internal static readonly Color ControlColor = new Color(0.16f, 0.19f, 0.25f, 1f);
+        internal static readonly Color AccentColor = new Color(0.45f, 0.68f, 0.86f, 1f);
+        internal static readonly Color TextColor = new Color(0.88f, 0.90f, 0.93f, 1f);
+        internal static readonly Color MutedTextColor = new Color(0.60f, 0.64f, 0.70f, 1f);
 
         [SerializeField] PlanetBootstrap bootstrap;
         [SerializeField] InputField seedField;
@@ -284,6 +285,7 @@ namespace Planetwalker.UI
                 bootstrap.PlanetGenerated += OnPlanetGenerated;
                 SyncFromDefinition();
                 SubscribeVisual();
+                SubscribeArchive();
             }
         }
 
@@ -310,7 +312,8 @@ namespace Planetwalker.UI
                 && displayModeText != null && naturalToggle != null && surfaceSaturationSlider != null
                 && oceanShadingToggle != null && atmosphereToggle != null && terminatorSlider != null
                 && cloudToggle != null && cloudAltitudeSlider != null && cloudLegendBar != null && cloudSkyLabel != null
-                && solarTimeSlider != null && contemplateButton != null && showControlsButton != null && contemplationHint != null)
+                && solarTimeSlider != null && contemplateButton != null && showControlsButton != null && contemplationHint != null
+                && ArchiveLayoutComplete())
             {
                 return;
             }
@@ -396,6 +399,7 @@ namespace Planetwalker.UI
             biomeAriditySlider.onValueChanged.AddListener(OnBiomeSettingChanged);
             biomeSharpnessSlider.onValueChanged.AddListener(OnBiomeSettingChanged);
             biomeAlpineSlider.onValueChanged.AddListener(OnBiomeSettingChanged);
+            EnableArchive();
             if (bootstrap != null)
             {
                 bootstrap.PlanetGenerated -= OnPlanetGenerated;
@@ -474,6 +478,7 @@ namespace Planetwalker.UI
             biomeAriditySlider.onValueChanged.RemoveListener(OnBiomeSettingChanged);
             biomeSharpnessSlider.onValueChanged.RemoveListener(OnBiomeSettingChanged);
             biomeAlpineSlider.onValueChanged.RemoveListener(OnBiomeSettingChanged);
+            DisableArchive();
             if (bootstrap != null)
             {
                 bootstrap.PlanetGenerated -= OnPlanetGenerated;
@@ -514,6 +519,7 @@ namespace Planetwalker.UI
                 ApplySurfaceSettings();
             }
             SyncHydrologyToggle();
+            UpdateArchive();
         }
 
         void LateUpdate()
@@ -1360,6 +1366,10 @@ namespace Planetwalker.UI
             {
                 panelFrame.gameObject.SetActive(!on);
             }
+            if (on)
+            {
+                CloseWorldLibrary();
+            }
             if (showControlsButton != null)
             {
                 showControlsButton.gameObject.SetActive(on);
@@ -1385,7 +1395,7 @@ namespace Planetwalker.UI
         void UpdateContemplation()
         {
             Keyboard keyboard = Keyboard.current;
-            if (keyboard != null && !(seedField != null && seedField.isFocused))
+            if (keyboard != null && !AnyTextFieldFocused())
             {
                 if (keyboard.hKey.wasPressedThisFrame)
                 {
@@ -1892,8 +1902,12 @@ namespace Planetwalker.UI
             panelScroll.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.AutoHide;
 
             CreateLabel(panel, font, "PLANETWALKER", 26, FontStyle.Bold, TextColor, 32f);
-            CreateLabel(panel, font, "GENESIS V0.1.2D", 14, FontStyle.Normal, AccentColor, 20f);
+            CreateLabel(panel, font, "GENESIS V0.1.3B", 14, FontStyle.Normal, AccentColor, 20f);
             CreateSpacer(panel, 6f);
+            BuildArchiveSection(panel, font);
+            worldLibrary = WorldLibraryPanel.Create(transform, font);
+            CreateSpacer(panel, 4f);
+            CreateLabel(panel, font, "GENERATION", 13, FontStyle.Bold, AccentColor, 18f);
 
             var seedRow = CreateRow(panel, "Seed Row");
             CreateLabel(seedRow, font, "Seed", FontSize, FontStyle.Normal, MutedTextColor, RowHeight, 70f);
@@ -2075,7 +2089,7 @@ namespace Planetwalker.UI
         }
 
         /// <summary>Thin vertical scrollbar along the right edge of the panel frame.</summary>
-        static Scrollbar CreateScrollbar(RectTransform frame)
+        internal static Scrollbar CreateScrollbar(RectTransform frame)
         {
             var rect = CreateRect("Scrollbar", frame);
             rect.anchorMin = new Vector2(1f, 0f);
@@ -2113,7 +2127,7 @@ namespace Planetwalker.UI
             }
         }
 
-        static RectTransform CreateRect(string objectName, Transform parent)
+        internal static RectTransform CreateRect(string objectName, Transform parent)
         {
             var go = new GameObject(objectName, typeof(RectTransform));
             go.layer = parent.gameObject.layer;
@@ -2122,7 +2136,7 @@ namespace Planetwalker.UI
             return rect;
         }
 
-        static RectTransform CreateRow(RectTransform parent, string objectName)
+        internal static RectTransform CreateRow(RectTransform parent, string objectName)
         {
             var row = CreateRect(objectName, parent);
             var layout = row.gameObject.AddComponent<HorizontalLayoutGroup>();
@@ -2135,12 +2149,12 @@ namespace Planetwalker.UI
             return row;
         }
 
-        static void CreateSpacer(RectTransform parent, float height)
+        internal static void CreateSpacer(RectTransform parent, float height)
         {
             CreateRect("Spacer", parent).gameObject.AddComponent<LayoutElement>().preferredHeight = height;
         }
 
-        static Text CreateLabel(RectTransform parent, Font font, string text, int size, FontStyle style, Color color,
+        internal static Text CreateLabel(RectTransform parent, Font font, string text, int size, FontStyle style, Color color,
             float height, float width = -1f)
         {
             var rect = CreateRect("Label", parent);
@@ -2162,7 +2176,7 @@ namespace Planetwalker.UI
             return label;
         }
 
-        static InputField CreateInputField(RectTransform parent, Font font)
+        internal static InputField CreateInputField(RectTransform parent, Font font)
         {
             var rect = CreateRect("Seed Input", parent);
             var background = rect.gameObject.AddComponent<Image>();
@@ -2197,7 +2211,7 @@ namespace Planetwalker.UI
             return field;
         }
 
-        static Toggle CreateToggle(RectTransform parent, Font font, string caption)
+        internal static Toggle CreateToggle(RectTransform parent, Font font, string caption)
         {
             var rect = CreateRect(caption + " Toggle", parent);
             rect.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
@@ -2232,7 +2246,7 @@ namespace Planetwalker.UI
             return toggle;
         }
 
-        static Button CreateButton(RectTransform parent, Font font, string caption)
+        internal static Button CreateButton(RectTransform parent, Font font, string caption)
         {
             var rect = CreateRect(caption + " Button", parent);
             var image = rect.gameObject.AddComponent<Image>();
@@ -2301,7 +2315,7 @@ namespace Planetwalker.UI
             return slider;
         }
 
-        static void Stretch(RectTransform rect, float horizontalPadding, float verticalPadding)
+        internal static void Stretch(RectTransform rect, float horizontalPadding, float verticalPadding)
         {
             rect.anchorMin = Vector2.zero;
             rect.anchorMax = Vector2.one;

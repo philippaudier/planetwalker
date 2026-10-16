@@ -208,7 +208,7 @@ namespace Planetwalker.Rendering
             OceanRenderer?.SetPropertyBlock(oceanProperties);
         }
 
-        void DrawClouds()
+        void DrawClouds(Camera target = null)
         {
             if (!CloudsVisible || cloudMesh == null || Planet == null)
             {
@@ -217,6 +217,7 @@ namespace Planetwalker.Rendering
             float radius = CloudRadius;
             var renderParams = new RenderParams(CloudMaterialInUse)
             {
+                camera = target,
                 matProps = cloudProperties,
                 layer = gameObject.layer,
                 shadowCastingMode = ShadowCastingMode.Off,

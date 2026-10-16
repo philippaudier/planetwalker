@@ -1,4 +1,4 @@
-# Planetwalker — Genesis V0.1.2D (Planetary Lighting & Presentation)
+# Planetwalker — Genesis V0.1.3B (World Library)
 
 ## Launch
 
@@ -33,6 +33,14 @@ Systems, Convection, Cloud Shadows, Cloud Altitude; **Show Cloud Data** + View: 
 Lighting & time (panel **LIGHTING & TIME**): Day/Night Cycle (off by default), Pause / Resume, Solar Time
 scrubber (12:00 = the default sun), Cycle Duration, Twilight Warmth, Reset Sun. **Contemplate (H)** hides the
 controls (orbit and zoom keep working); **H**, **Esc** or the small "Show controls" button bring them back.
+
+World archive (panel **WORLD ARCHIVE**, top of the panel, V0.1.3A): the current world's name, its state
+(**New world · not saved yet**, **Saved · date · id**, or **UNSAVED CHANGES**), **Save Planet** (asks for a name the
+first time, then replaces the same archive), **Save As New** (a new identity) and **World Library** (V0.1.3B: every
+saved world as a card with its picture; select to see its details, **Enter World**, **Rename**, **Duplicate**, **Delete**,
+**Refresh Preview**, **New World**; search and sort). Deleting, and entering or creating a world over unsaved changes,
+ask for confirmation. Editing the World name renames the current world (its archive too when it is saved). See
+*World Archive* and *World Library* below.
 
 Development views: select the `Planet` object in Play mode and set **Debug View**:
 - `ContinentalMask`: dark gray = ocean basins, white = continental interiors (ocean hidden).
@@ -72,6 +80,109 @@ Lakes: panel **Lakes > Show Lakes** (off by default for the same reason). Lake A
 Minimum Area (% of the planet surface) and Closed Lake Level only change the selection (the
 depression analysis and the hydrology are reused).
 
+## World Archive (V0.1.3A)
+
+A saved world is a small JSON file (about 3 KB) holding its identity, both seeds and every persistent setting. No
+generated data is stored (no meshes, grids, climate, biome maps or cloud textures): loading regenerates the planet from
+the seeds and settings, once.
+
+**Location**: `Application.persistentDataPath/Planetwalker/Worlds/<planet-id>.json`, shown at the top of the archive
+browser. With the default company / product names: Linux `~/.config/unity3d/DefaultCompany/planetwalker/Planetwalker/Worlds`,
+Windows `%USERPROFILE%\AppData\LocalLow\DefaultCompany\planetwalker\Planetwalker\Worlds`, macOS
+`~/Library/Application Support/DefaultCompany/planetwalker/Planetwalker/Worlds`. Same folder in the Editor and in
+builds; no administrator rights, network or account. Files are named by planet ID only: display names (any Unicode,
+80 characters max, no control characters) never reach the file system.
+
+**Identity**: a random GUID created at the first save, never derived from the seed (several worlds can share a seed).
+Rename keeps it; Duplicate and Save As New create a new one. Timestamps are UTC (`createdUtc`, `modifiedUtc`).
+
+**Contents** (schema 1): `archiveSchemaVersion`, `generatorVersion`, `planetId`, `displayName`, `createdUtc`,
+`modifiedUtc`, `planetSeed`, `weatherSeed` (0 = derived from the planet seed), then one object per settings group,
+each holding the archived fields of the project's own settings class under their C# names: `terrain`
+(`PlanetDefinition` without the seed), `hydrology`, `rivers`, `lakes`, `climate`, `biomes`, `surface`
+(`NaturalSurfaceSettings`), `oceanAtmosphere`, `clouds` (without the weather seed), `lighting` (twilight warmth, night
+ambient), and the optional `presentation` (`camera`: yaw / pitch in degrees, distance in rendering units; `solar`:
+solar time, day / night cycle, paused, cycle duration). Archived fields are the public serialized fields of each
+settings class (`SettingsFields`): a field added later is archived automatically, and a field of an unsupported type
+fails the archive tests rather than being dropped.
+
+**Persistent vs transient**: only the configuration above marks a world modified. The camera, the solar time and
+clock state, the cloud animation phase, debug views, wind-direction colors and contemplation mode never do; the
+camera and the clock are captured on each explicit save (the `presentation` block) and restored on load. The cloud
+animation phase is never saved; contemplation mode and debug views are never restored (a loaded world is shown in the
+Natural Planet view). The unsaved state is evaluated by comparing every archived field with the last saved or loaded
+configuration, only during 1.5 s after a panel control, an inspector edit or a regeneration (throttled to 5 Hz;
+nothing is compared while the planet just animates).
+
+**Saving** captures the live settings (sanitized copies), validates them, serializes, checks that the text reads back
+to the same configuration, writes a temporary file next to the archive, flushes it to disk, verifies its bytes, then
+atomically renames it over the archive (`File.Replace` / POSIX rename). Any failure (disk full, permissions, locked or
+corrupted file) leaves the previous archive untouched and is reported in the panel; orphan temporary files of an
+interrupted save are never listed and are removed after 10 minutes. Saving never regenerates and never resets the
+cloud motion or the solar clock. Settings still waiting for the panel's slider delay are written first, so the archive
+matches the controls.
+
+**Loading** is transactional: the file is read (1 MB max, strict UTF-8, strict JSON: no comments, trailing commas,
+NaN / Infinity, duplicate keys; 32 levels max), migrated and fully validated before anything changes; a rejected file
+leaves the current planet untouched. Then the groups are applied in a fixed order (terrain, hydrology, rivers, lakes,
+climate, biomes, surface, oceans & atmosphere, clouds, lighting), the planet is regenerated once, and the camera
+(clamped to the camera's limits) and solar clock are restored. If the regeneration throws, the previous configuration
+is applied and regenerated again and the load is reported as failed.
+
+**Validation** (archives are untrusted input): supported schema, known generator family, a valid planet ID matching
+the file name, valid name, UTC timestamps, 32-bit integer seeds, finite numbers only, every value inside its
+`[Range]` and unchanged by the class's own `Sanitize()` (so out-of-range values and disallowed grid resolutions are
+rejected, never clamped), colors in [0, 1]. Missing required data (schema version, generator version, ID, name,
+timestamps, planet seed, `terrain`) is an error. Missing optional data receives the generator defaults (the C# field
+initializers) and is listed in the load warnings (Console); unknown members are ignored with a warning.
+
+**Versioning**: `archiveSchemaVersion` is the file layout; `generatorVersion` is the set of procedural algorithms and
+defaults (currently `Genesis V0.1.3A`). Future schemas are rejected; older schemas go through forward-only migration
+steps (`PlanetArchiveSerializer.Migrations`, none yet: schema 1 is the first). Reconstruction is **exact** for archives
+of the current generator (and of versions listed as algorithm-identical) and **best-effort** otherwise: the same seeds
+and settings are applied, but terrain, climate, biomes or clouds may differ wherever an algorithm or default changed.
+Best-effort loads are labelled in the panel and the browser. A seed is not a promise of identical terrain across
+generator versions; keeping old generators runnable is future work.
+
+## World Library (V0.1.3B)
+
+An overlay inside the running application (no scene change): header (New World, Close), search (name, any Unicode
+script, case-insensitive; or seed digits) and sort (recently / oldest modified, name A-Z / Z-A, recently created),
+pages of 12 cards (thumbnail, name, seed, last modification, land coverage when recorded, CURRENT tag), and a details
+panel: larger preview, name, identity (seed, created, last modified, world ID), recorded characteristics (land and
+ocean coverage, mean temperature, dominant biome), **ENTER WORLD** (primary; "Return to World" for the current,
+unmodified world, which is not regenerated), Rename / Duplicate / Delete and Refresh Preview. Keyboard: arrows, Page
+Up / Down, Enter, Esc. Double-click a card to enter its world. Unreadable archives stay listed (last) with their
+error and can only be deleted. A successful Enter World / New World closes the library.
+
+**Thumbnails**: `persistentDataPath/Planetwalker/Thumbnails/<planet-id>.png` (256 x 256), separate from the archives
+(a missing or broken picture never affects a world: the library shows a placeholder). Captured with an isolated,
+temporary camera and render texture (`WorldThumbnailRenderer`): the user's camera and the planet are untouched,
+nothing is regenerated; the parts drawn without GameObjects (atmosphere, clouds, lakes, rivers) are submitted for that
+camera only. Natural Planet view only (never a debug view), no UI or gizmos. Framing: the whole planet, atmosphere and
+clouds with a 10% margin, 30 degree field of view, seen from the lit side (sun 35 degrees aside, 18 degrees above the
+equator) so every picture is daylit and comparable; rendered at 512 px and averaged 2x2. No post-processing (bloom /
+tonemapping of the main camera are not applied). Captured only after a save (Save, Save As New) or Refresh Preview,
+a couple of frames later, once the display matches the saved configuration (pending regeneration done, Natural Planet
+view shown); if the world changes first, the capture is cancelled (an archive's picture never shows unsaved changes).
+Duplicate copies the picture, Rename keeps it, Delete removes it after the archive is deleted. Failures (capture,
+encoding, read-only folder) are non-fatal warnings; the previous picture is kept and the save stands.
+
+**Characteristics**: an optional `metadata` member of the archive (same schema 1): `landFraction` (surface above sea
+level, the planet's 8192-sample statistic), `meanTemperature` (area-weighted annual mean of the whole surface, deg C,
+from the climate diagnostics) and `dominantBiome` (largest land area). Written at each save from values the application
+had already computed, and only when they provably belong to the saved configuration (otherwise "Unavailable"); never
+recomputed to open or browse the library; never part of the unsaved-changes comparison. Chosen over a sidecar file:
+it is written atomically with the world, and rename / duplicate / delete need no extra file. V0.1.3A archives
+(no metadata) load unchanged (exact reconstruction: V0.1.3A and V0.1.3B share the same algorithms) and show
+"Unavailable" until the next save or Refresh Preview (which records the statistics and the picture of the current,
+unmodified world without changing its modification time). A V0.1.3A build reads V0.1.3B archives and ignores the
+metadata with a warning. An invalid metadata block is dropped with a warning; the world stays loadable.
+
+**Resources**: opening reads the archive folder once (metadata only); search and sort run in memory. Thumbnails are
+decoded lazily for the visible page (3 per frame) into a bounded cache (36 textures) that is released when the
+library closes. No per-frame disk access, JSON parsing or decoding; idle display allocates nothing.
+
 ## Architecture
 
 | Layer | Files | Role |
@@ -106,13 +217,53 @@ depression analysis and the hydrology are reused).
 | Rendering | `Rendering/PlanetVisualController` | Owns face/ocean objects and meshes, reuses them on regeneration |
 | Rendering | `Rendering/PlanetColorRamp` | Elevation (+ slope) palette |
 | Presentation | `Camera/PlanetOrbitCamera`, `UI/PlanetGenerationPanel` | Input System orbit camera, uGUI panel |
-| Bootstrap | `Bootstrap/PlanetBootstrap` | Regeneration entry point, scene auto-setup |
+| Bootstrap | `Bootstrap/PlanetBootstrap` | Regeneration entry point, scene auto-setup, world archive host (`IWorldHost`) |
+| Persistence | `Persistence/PlanetArchive` | World archive model: identity, `WorldConfiguration` (settings groups), presentation, compatibility |
+| Persistence | `Persistence/ArchiveJson`, `Persistence/SettingsFields` | Strict JSON reader / deterministic writer; field-level archive, compare, copy and range validation of settings classes |
+| Persistence | `Persistence/PlanetArchiveSerializer` | Schema 1 layout, migrations, validation, generator compatibility |
+| Persistence | `Persistence/WorldArchiveStore` | One file per world, atomic writes, listing, rename / duplicate / delete (`IArchiveFileSystem`) |
+| Persistence | `Persistence/WorldSession` | Current world identity, unsaved-change tracking, transactional save / load |
+| Presentation | `UI/PlanetGenerationPanel.Archive` | WORLD ARCHIVE section, entry to the World Library |
+| Persistence | `Persistence/WorldMetadata` | Optional recorded characteristics (land, temperature, dominant biome) |
+| Persistence | `Persistence/WorldThumbnailStore` | Thumbnail PNG files per planet ID (atomic writes, safe reads) |
+| Library | `Library/WorldThumbnailRenderer` | Isolated-camera capture of the displayed planet to PNG |
+| Library | `Library/WorldThumbnailUpdater` | When thumbnails are captured (after saves, only once the display matches) |
+| Library | `Library/WorldThumbnailCache` | Lazy, bounded, released thumbnail textures |
+| Library | `Library/WorldLibraryModel` | In-memory list, Unicode search, deterministic sorts |
+| Presentation | `UI/WorldLibraryPanel` | World Library overlay: cards, pages, details, actions |
 
 Elevation convention: dimensionless, fraction of the reference radius
 (surface point = `dir * radius * (1 + elevation)`), so terrain shape is independent of the
 rendering scale.
 
 ## Changelog
+
+### V0.1.3B — World Library
+- The V0.1.3A archive browser became the **World Library**: a full-screen overlay with planet cards, search, sort, pages,
+  a details panel (preview, identity, characteristics), Enter World, New World, Rename / Duplicate / Delete, Refresh
+  Preview, keyboard navigation and double-click. Details: *World Library* above.
+- Thumbnails: isolated-camera captures of the Natural Planet after each save, stored per planet ID next to the
+  archives; never block or fail a save.
+- Optional `metadata` in archives (schema 1 unchanged; V0.1.3A archives load exactly, without statistics).
+- Generator version `Genesis V0.1.3B` (algorithms unchanged; V0.1.3A archives remain exact).
+- Rendering: the atmosphere / cloud / lake / river draws accept a target camera (`SubmitPresentationDraws`) for the
+  thumbnail camera; what they draw is unchanged. Planet generation, climate, hydrology, biomes, clouds, oceans,
+  atmosphere and lighting are untouched.
+
+### V0.1.3A — Planet Workshop: The World Archive
+- Save, name, rename, duplicate, delete and reload worlds (panel **WORLD ARCHIVE** + archive browser). One JSON file per
+  world in `persistentDataPath/Planetwalker/Worlds`, named by a random planet ID. Details: *World Archive* above.
+- Archives hold seeds and settings only; loading regenerates once. Reconstruction with the same generator is exact
+  (tests compare terrain samples, mesh vertices and colors, climate and biome fields and the cloud field bit for bit
+  on the four reference seeds).
+- Safe persistence: validation before writing, read-back check, temporary file + flush + verify + atomic rename;
+  failed or interrupted saves keep the previous archive. Strict validation on load; nothing changes until the archive
+  is fully valid; rollback if the regeneration fails.
+- Unsaved-changes indicator for persistent settings only (camera, solar clock, cloud animation and debug views never
+  mark a world modified). Loading over unsaved changes asks for confirmation.
+- Orbit camera: `SetView` / target accessors for restoring a saved view. Inspector edits of the bootstrap or the
+  planet raise `SettingsEdited` (unsaved-change tracking).
+- No change to generation, rendering or any existing default.
 
 ### V0.1.2D — Planetary Lighting & Presentation
 - One authoritative sun: the scene's star light, oriented by a visual solar clock (`SolarSettings`,
@@ -452,6 +603,12 @@ rendering scale.
 ## Tests
 
 Window > General > Test Runner > EditMode > run `Planetwalker.Tests.EditMode`.
+World archive: `WorldArchiveFormatTests` (format, schema, validation, identity, safe storage; engine independent) and
+`WorldArchiveSessionTests` (live planet: unsaved changes, regeneration counts, deterministic reconstruction of the
+reference seeds, presentation, leaks, save / list / load timings). Both use a temporary folder, never the user's archives.
+World Library: `WorldLibraryFormatTests` (V0.1.3A compatibility, metadata, thumbnail files, search / sort; engine
+independent) and `WorldLibrarySessionTests` (real thumbnail captures, capture timing, unsaved-change protection, no
+recomputation while browsing, bounded textures, 120 worlds, application wiring).
 Lake tests: `LakeSystemTests` (data, synthetic terrains + reference seeds) and `LakeRenderingTests`
 (visual controller: caching, visibility, debug-view seams, leaks), and `LakeShorelineTests`
 (V0.1.1D-B.2 shorelines and river transitions, tests A - O, resolution matrix), and

@@ -359,6 +359,14 @@ namespace Planetwalker.Rendering
             UpdateClimateArrows();
         }
 
+        /// <summary>Raised when settings are edited in the inspector (editor only): the world may have unsaved changes.</summary>
+        public event Action SettingsEdited;
+
+        void OnValidate()
+        {
+            SettingsEdited?.Invoke();
+        }
+
         void Update()
         {
             // Lets views and hydrology display settings change during Play mode.
@@ -400,10 +408,25 @@ namespace Planetwalker.Rendering
 
         void LateUpdate()
         {
-            DrawAtmosphere();
-            DrawClouds();
-            DrawLakes();
+            SubmitPresentationDraws(null);
             DrawWindArrows();
+        }
+
+        /// <summary>
+        /// Submits the planet parts drawn without a GameObject (atmosphere, clouds, lakes, rivers) for this frame:
+        /// for every camera (null, the normal case) or only for one camera, e.g. an isolated thumbnail camera that
+        /// is rendered right after (V0.1.3B). Nothing is recomputed.
+        /// </summary>
+        public void SubmitPresentationDraws(Camera target)
+        {
+            DrawAtmosphere(target);
+            DrawClouds(target);
+            DrawLakes(target);
+            DrawRivers(target);
+        }
+
+        void DrawRivers(Camera target)
+        {
             if (!RiversVisible || riverMesh == null || riverMesh.vertexCount == 0)
             {
                 return;
@@ -418,6 +441,7 @@ namespace Planetwalker.Rendering
             riverProperties.SetColor("_MouthColor", MouthColor());
             var renderParams = new RenderParams(ResolveRiverMaterial())
             {
+                camera = target,
                 matProps = riverProperties,
                 layer = gameObject.layer,
                 shadowCastingMode = ShadowCastingMode.Off,
@@ -665,7 +689,7 @@ namespace Planetwalker.Rendering
             }
         }
 
-        void DrawLakes()
+        void DrawLakes(Camera target = null)
         {
             if (!LakesVisible || lakeMesh == null || lakeMesh.vertexCount == 0 || Planet == null)
             {
@@ -678,6 +702,7 @@ namespace Planetwalker.Rendering
             lakeProperties.SetFloat("_LiftPerDistance", 0.0002f);
             var renderParams = new RenderParams(ResolveLakeMaterial())
             {
+                camera = target,
                 matProps = lakeProperties,
                 layer = gameObject.layer,
                 shadowCastingMode = ShadowCastingMode.Off,

@@ -244,7 +244,7 @@ namespace Planetwalker.Rendering
             ResolveAtmosphereMaterial();
         }
 
-        void DrawAtmosphere()
+        void DrawAtmosphere(Camera target = null)
         {
             if (!AtmosphereVisible || atmosphereMesh == null || Planet == null)
             {
@@ -254,6 +254,7 @@ namespace Planetwalker.Rendering
             float radius = AtmosphereRadius;
             var renderParams = new RenderParams(AtmosphereMaterialInUse)
             {
+                camera = target,
                 matProps = atmosphereProperties,
                 layer = gameObject.layer,
                 shadowCastingMode = ShadowCastingMode.Off,
