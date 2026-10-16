@@ -17,6 +17,7 @@ namespace Planetwalker.Core
         {
             Definition = definition.Clone();
             Definition.Sanitize();
+            Scale = PlanetScale.Of(Definition);
             Height = new PlanetHeightGenerator(Definition);
             ComputeStatistics();
         }
@@ -25,6 +26,9 @@ namespace Planetwalker.Core
         public PlanetDefinition Definition { get; }
 
         public PlanetHeightGenerator Height { get; }
+
+        /// <summary>Physical scale contract (V0.2.0C): render units vs meters.</summary>
+        public PlanetScale Scale { get; }
 
         public float Radius => Definition.radius;
 
@@ -44,6 +48,26 @@ namespace Planetwalker.Core
         public float GetElevation(Vector3 normalizedDirection)
         {
             return Height.GetElevation(normalizedDirection);
+        }
+
+        /// <summary>
+        /// Angular spacing (radians) of the legacy face meshes: the band limit of the legacy world (V0.2.0C). The
+        /// face meshes, and every analysis and water system built on them (hydrology, climate, bathymetry, slope
+        /// field, lakes, rivers), sample the terrain band-limited to at least this spacing, so they agree with
+        /// each other exactly; the adaptive terrain samples the full canonical function.
+        /// </summary>
+        public float LegacySampleSpacing => Mathf.PI * 0.5f / Definition.resolution;
+
+        /// <summary>Elevation band-limited to the legacy world (see <see cref="LegacySampleSpacing"/>).</summary>
+        public float GetLegacyElevation(Vector3 normalizedDirection)
+        {
+            return Height.GetElevation(normalizedDirection, LegacySampleSpacing);
+        }
+
+        /// <summary>Elevation band-limited to the coarser of the legacy world and an analysis grid spacing.</summary>
+        public float GetLegacyElevation(Vector3 normalizedDirection, float gridSpacing)
+        {
+            return Height.GetElevation(normalizedDirection, Mathf.Max(gridSpacing, LegacySampleSpacing));
         }
 
         /// <summary>Distance from the planet center to the terrain surface, in rendering units.</summary>

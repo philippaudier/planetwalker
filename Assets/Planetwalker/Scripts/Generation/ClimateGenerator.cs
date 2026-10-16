@@ -61,8 +61,9 @@ namespace Planetwalker.Generation
         public ClimateResult Compute(PlanetInstance planet, ClimateSettings settings, HydrologyGrid grid = null)
         {
             settings.Sanitize();
-            return Compute(grid ?? new HydrologyGrid(settings.resolution), planet.Height.GetElevation, planet.SeaLevel,
-                planet.Definition.seed, settings);
+            grid ??= new HydrologyGrid(settings.resolution);
+            float spacing = Mathf.PI * 0.5f / grid.Resolution; // band-limited to the grid and the legacy world (V0.2.0C)
+            return Compute(grid, d => planet.GetLegacyElevation(d, spacing), planet.SeaLevel, planet.Definition.seed, settings);
         }
 
         /// <summary>

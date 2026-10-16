@@ -1,4 +1,4 @@
-# Planetwalker — Genesis V0.2.0B (Seamless Adaptive Planet Terrain)
+# Planetwalker — Genesis V0.2.0C (Planetary Scale & Deterministic Multi-Scale Terrain)
 
 ## Launch
 
@@ -137,7 +137,7 @@ timestamps, planet seed, `terrain`) is an error. Missing optional data receives 
 initializers) and is listed in the load warnings (Console); unknown members are ignored with a warning.
 
 **Versioning**: `archiveSchemaVersion` is the file layout; `generatorVersion` is the set of procedural algorithms and
-defaults (currently `Genesis V0.1.3A`). Future schemas are rejected; older schemas go through forward-only migration
+defaults (currently `Genesis V0.2.0C`). Future schemas are rejected; older schemas go through forward-only migration
 steps (`PlanetArchiveSerializer.Migrations`, none yet: schema 1 is the first). Reconstruction is **exact** for archives
 of the current generator (and of versions listed as algorithm-identical) and **best-effort** otherwise: the same seeds
 and settings are applied, but terrain, climate, biomes or clouds may differ wherever an algorithm or default changed.
@@ -332,6 +332,104 @@ red stitched transitions, white face edges; 8 regenerate while building: never t
 in the World Library: previews and worlds correct; 10 switch Legacy / Adaptive repeatedly: no corruption, memory flat;
 11 still camera: builds settle to 0 pending; 12 several minutes of exploration: no stall or leak.
 
+## Planetary Scale & Multi-Scale Terrain (V0.2.0C)
+
+**Physical scale** (`Core/PlanetScale`, one authoritative source, `PlanetInstance.Scale`): a planet has a render radius
+(`radius`, 100 units, the visual size, unchanged) and a physical radius (`radiusKilometers`, 6371 km = Earth by
+default, archived with the terrain group). Horizontal distances are physical (1 unit = 63.71 km at Earth scale);
+vertical relief stays the artistic, dimensionless model of V0.1 ("Mountains 4.5%" = 4.5% of the radius, about 30 x the
+real world). `PlanetScale` converts, formats and measures (`FloatPrecisionMeters`: a float32 coordinate of magnitude 100
+units steps by 0.49 m at Earth scale); it never reinterprets a generation setting. `ClimateSettings.planetRadiusKm`
+(6371, climate only) is a legacy parameter of the climate model, left untouched; unifying the two is future work.
+
+**Coordinates** (`Core/Vector3d`, `Core/PlanetCoordinates`): planet space is the planet object's local space (center at
+the origin, the cube-sphere axes, render units) in double precision. `PlanetTangentFrame.At(direction)` gives Up /
+North / East (right handed, East = North x Up), with the generator's own pole rule (+Y reference, +X within ~8 degrees
+of the Y poles): orthonormal and finite everywhere, deterministic, the switch explicit. `PlanetCoordinates` converts
+direction + altitude to positions, steps along the surface in meters, measures angles stably.
+
+**Floating origin** (`Core/PlanetRenderFrame`, on the planet root; automatic by default, *Floating Origin* toggle and
+*Rebase Now* in ADAPTIVE TERRAIN): the render origin is a planet-space point mapped to the Unity world origin. There is
+no stored origin: it is derived from the root's float world position, so it is always exactly representable and
+`transform.localToWorldMatrix` users (legacy faces, ocean, atmosphere and cloud shells, rivers, lakes, overlays,
+thumbnails, `_AtmoShell`) and the adaptive terrain (`PatchMatrix`: translation computed in double) agree bit for bit.
+The orbit camera computes its position in double (yaw / pitch / distance), asks the frame to rebase when its render
+distance from the world origin exceeds max(0.25 x altitude, 1e-3 units), then places itself; everything runs in one
+phase before any draw (`PlanetOrbitCamera` at execution order -90, draws in LateUpdate). Near / far clip planes follow
+the altitude above the terrain under the camera (near = 5% of the altitude, floor 5e-5 units; far = distance + 2 R).
+Altitude, zoom steps and rotation speed also follow the terrain under the camera (`SurfaceRadius`: the canonical
+elevation), so a plain is as reachable as a summit (minimum altitude 0.001 units = 64 m at Earth scale). Legacy faces
+and the ocean sphere keep float32 vertices of magnitude 100 (0.5 m quantization near the surface): the legacy renderer
+is the orbital reference; V0.2.0D should render water adaptively.
+
+**Terrain detail hierarchy** (`Generation/TerrainDetail`): the canonical elevation is the planetary terrain e0 (L0:
+continents, mountain systems, V0.1 detail; unchanged, `GetBaseElevation`) plus three deterministic bands of
+continuous 3D noise on the sphere. The spectrum continues e0's own finest octave (`detailFrequency` x 8, amplitude
+`detailStrength` x 0.067) with a gain of 2^-0.8 per octave (Hurst 0.8), each octave doubling the frequency, down to a
+wavelength of 80 m at the planet's physical scale (11 octaves at Earth scale: 104 km .. 102 m; 730 m .. 2.9 m of
+amplitude, x 3 inside range cores). Bands by physical wavelength: **Regional** >= 20 km (3 octaves: 104, 52, 26 km),
+**Local** 1.5-20 km (4 octaves), **Micro** < 1.5 km (4 octaves). Physically plausible relief (hundreds of meters at
+100 km, meters at 100 m) under the exaggerated planetary relief. Geographic conditioning, from upstream signals only:
+*coasts* (each band fades to zero within 6 x its largest amplitude of elevation above sea level: no band can move the
+shoreline or sink a point below the sea, nothing under water: the coastline of e0 is preserved exactly); *mountains*
+(range core envelope and influence, from the same evaluation as e0: regional and local bands become ridged and are
+stretched along the range direction, secondary crests parallel to the main ridges with broad valleys between, their
+amplitude grows with the core like e0's detail; regional valley floors are flattened by a soft maximum, intermontane
+basins); *relief* (`TerrainReliefField`: slope of e0 on a 128-cell gnomonic face grid built once per planet, 20-70 ms
+in parallel: flanks and escarpments get the full dissection, flat ground, plateau tops and valley floors keep 35%);
+*character* (a seeded planet-scale field: smoother / eroded regions vs rugged ones for the local and micro bands, a
+terrain-style signal standing in for aridity). Dependency order: e0 -> relief field -> detail; climate and biomes are
+downstream and never read (tested by reflection). Controls (SURFACE DETAIL): *Enable Surface Detail* (off reproduces
+V0.2.0B bit for bit), *Regional / Local / Micro Detail* (0-2 x, each scales only its band), *Show Detail Layers* with
+Combined / Regional / Local / Micro views (signed displacement, blue down / red up; the adaptive terrain shows them too).
+
+**Determinism and band limiting**: the detail is a pure function of the direction (and the immutable per-planet
+context): same for every patch, level, face, thread and frame; two octave seeds derive from the world seed. LOD controls
+sampling density, not identity: patch positions always use the full function (spacing 0). `GetElevation(direction,
+spacing)` band-limits the detail to a sample spacing (octaves below 2 x the spacing are gone, whole from 4 x): the
+hydrology, climate, bathymetry and slope grids sample it at their own spacing (they see the relief they can resolve,
+never aliased noise, so rivers follow the regional valleys they resolve), and normals (legacy faces at the mesh spacing,
+adaptive patches at their level's spacing) shade the relief the mesh resolves: no aliasing grain, every octave shaded
+once resolved. Vertices shared by two levels get normals one octave apart (bounded, the usual LOD shading step; the
+Natural Planet colors read the slope field, so colors have no seam). The LOD error model adds the typical slope of the
+resolved octaves and the amplitude of the unresolved ones (`TerrainDetailProfile.TypicalSlope / UnresolvedAmplitude`):
+orbital levels change by < 60%, near-ground levels refine more; the 512 budget and the balanced stitching are unchanged.
+
+**Precision**: the adaptive patch geometry runs in double (V0.2.0C): lattice directions (`LatticeDirectionD`, exact
+rationals, bit-identical for shared vertices), the detail octaves (`PlanetNoise.Gradient(double...)`: fine octaves keep
+sub-cell precision at coordinates of 1e5-1e6), positions (direction x radius in double, relative to the float-rounded
+patch origin the draw matrix uses, rounded once), normals (double finite differences). The planetary terrain itself is
+single precision and its evaluation carries a few centimeters of rounding noise from sample to sample, which a
+sub-meter grid turns into visible grain; below the fine lattice spacing (`FineSpacing`, 2^16 cells per face = 150 m at
+Earth scale) the canonical e0 is `FineBaseElevation`: a Catmull-Rom interpolation of e0 on that global lattice (exact
+to the meter away from crest lines, which it rounds over one cell, up to ~20 m; vertices of coarser levels are lattice
+points and get the sample itself). One canonical surface for every level; legacy faces (direct float e0) differ from it
+by the float noise and the crest rounding (invisible from orbit). Remaining floor: float32 elevation values (0.6 cm at
+Earth scale) and the float32 camera-space geometry near the origin (millimeters).
+
+**Save format**: five new terrain fields (`radiusKilometers`, `surfaceDetail`, `regionalDetail`, `localDetail`,
+`microDetail`), schema 1 unchanged. Generator version `Genesis V0.2.0C`; V0.1.3A and V0.1.3B archives are exact: an
+archive without `terrain.surfaceDetail` (every archive before V0.2.0C) loads with surface detail off
+(`PlanetArchiveSerializer.ApplyCompatibilityDefaults`, no warning), so its terrain is bit-identical to what it recorded;
+new worlds start with it on. V0.2.0A / V0.2.0B generator strings load best-effort (they never named a committed world).
+
+**Measured (offline .NET 8, Ryzen 5 PRO 8640HS, seed 1337 at Earth scale)**: canonical sample 2.2 us (planetary only
+1.9 us; band-limited 1.9 us); planet construction 230 ms with the relief field (14-35 ms without; parallel); the
+adaptive pipeline with 3 workers settles a 512-patch covering in 0.21-0.31 s from distant orbit to 30 m altitude
+(V0.2.0B: 0.16-0.35 s), main thread 0.3-0.9 ms per frame. Look harness (hillshade of the canonical terrain, 320 x 320
+samples at the view's spacing): mountain (seed 1337) at 100 km / 10 km / 1 km / 100 m windows: relief 44.7 km / 4.7 km /
+1.1 km / 39 m, mean slope 0.72 / 0.97 / 1.18 / 0.47; plain: 10.5 km / 444 m / 85 m / 14 m, mean slope 0.08 / 0.10 /
+0.19 / 0.18. Plains stay 5-10 x calmer than mountains at every scale.
+
+**Manual check (Play mode)**: 1 seed 1337, surface detail off, Legacy vs Adaptive = the V0.2.0B reference; 2 detail on:
+continents and coastlines unchanged from orbit; 3 descend on a mountain: massif structure (100 km) -> secondary ridges
+and valleys (10 km) -> local relief (1 km) -> fine irregularities (100 m), no sudden change; 4 same descent over a
+plain: visibly calmer; 5 approach a shoreline: no new islands, no water / terrain intersections; 6 both poles: no
+instability; 7 rapid zoom orbit <-> ground: no hole, no stale patch, pending bounded; 8 save a world with custom detail,
+leave / re-enter Play, load: same settings and geography; 9 load a V0.1.3B / V0.2.0B archive: terrain unchanged
+(detail off); 10 floating origin: at 100 m altitude the origin offset line shows rebases and terrain, ocean, clouds,
+atmosphere stay aligned; *Rebase Now* changes nothing visible.
+
 ## Architecture
 
 | Layer | Files | Role |
@@ -390,13 +488,28 @@ in the World Library: previews and worlds correct; 10 switch Legacy / Adaptive r
 | Terrain | `Terrain/AdaptiveCovering` | Displayed covering: atomic, balanced split / merge transitions |
 | Terrain | `Terrain/PatchBuildScheduler` | Bounded, generation-safe build pipeline (worker threads or main-thread budget) |
 | Terrain | `Terrain/AdaptiveTerrainRenderer` | TERRAIN RENDERER: Adaptive — lifecycle, uploads, stitching, natural drawing |
-| Presentation | `UI/PlanetGenerationPanel.AdaptiveTerrain` | ADAPTIVE TERRAIN section (renderer selector, LOD, construction, diagnostics) |
+| Presentation | `UI/PlanetGenerationPanel.AdaptiveTerrain` | ADAPTIVE TERRAIN section (renderer selector, LOD, construction, diagnostics, altitude / origin line) |
+| Data | `Core/Vector3d`, `Core/PlanetScale`, `Core/PlanetCoordinates` | Double vectors; physical scale contract; tangent frames and planet-centered conventions |
+| Rendering | `Core/PlanetRenderFrame` | Floating origin: render origin derived from the root, double conversions, rebasing |
+| Generation | `Generation/TerrainDetail` | Detail profile (octaves, bounds), relief field, regional / local / micro detail evaluation |
+| Rendering | `Rendering/SurfaceDetailDebugColors` | Surface detail debug views |
+| Presentation | `UI/PlanetGenerationPanel.SurfaceDetail` | SURFACE DETAIL section |
 
 Elevation convention: dimensionless, fraction of the reference radius
 (surface point = `dir * radius * (1 + elevation)`), so terrain shape is independent of the
 rendering scale.
 
 ## Changelog
+
+### V0.2.0C — Planetary Scale & Deterministic Multi-Scale Terrain
+- Physical scale contract (`PlanetScale`, `radiusKilometers`), double-precision planet coordinates and tangent frames,
+  automatic floating origin (`PlanetRenderFrame`), double orbit camera with altitude-following clip planes and
+  terrain-following limits. Details: *Planetary Scale & Multi-Scale Terrain* above.
+- Deterministic regional / local / micro surface detail conditioned by coasts, mountains, relief and character; band-
+  limited sampling for analysis grids and normals; detail-aware LOD error model; SURFACE DETAIL section and debug views.
+- Adaptive patch geometry in double precision; smooth fine base of the planetary terrain below 150 m spacing.
+- Save format: five optional terrain fields; generator `Genesis V0.2.0C`; older archives load with detail off, exact.
+- Unchanged: continents, coastlines, mountain placement, seed interpretation, ocean level, climate, biomes, archives.
 
 ### V0.2.0B — Seamless Adaptive Planet Terrain
 - **Renderer: Legacy / Adaptive**: crack-free adaptive patches (2:1 balance + index stitching), progressive construction
@@ -792,6 +905,12 @@ Seamless terrain (V0.2.0B): `AdaptiveTerrainSeamTests` (engine independent: wate
 topology, displayed-covering transitions, pipeline bounds / cancellation / generations, sampling rules, performance)
 and `AdaptiveTerrainRendererTests` (legacy equivalence, switching, leaks, destruction, regeneration and loads while
 building, ocean / atmosphere / clouds / rivers / lakes, thumbnails, erratic camera, Unity tick costs).
+Scale and terrain detail (V0.2.0C): `PlanetScaleAndFrameTests` (A-E engine independent: conversions, altitude, tangent
+frames incl. poles, double round trips; F-H, X in Unity: frame snapping and consistency, rebasing vs terrain samples,
+orbit camera, ocean / atmosphere alignment after a rebase), `TerrainDetailTests` (H-O, V: determinism across threads
+and precision paths, seed independence, continuity across faces and corners, bounds, detail-off bit identity, band
+controls, coastline preservation, no climate / biome dependency, band limiting, double-path smoothness, error model,
+cost report), `WorldArchiveFormatTests` T / U (old archives exact with detail off, new fields round trip).
 World archive: `WorldArchiveFormatTests` (format, schema, validation, identity, safe storage; engine independent) and
 `WorldArchiveSessionTests` (live planet: unsaved changes, regeneration counts, deterministic reconstruction of the
 reference seeds, presentation, leaks, save / list / load timings). Both use a temporary folder, never the user's archives.

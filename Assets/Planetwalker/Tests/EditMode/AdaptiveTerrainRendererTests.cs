@@ -135,8 +135,13 @@ namespace Planetwalker.Tests
                     worstColor = Mathf.Max(worstColor, Mathf.Max(Mathf.Abs(d.r), Mathf.Max(Mathf.Abs(d.g), Mathf.Abs(d.b))));
                 }
             }
-            Assert.Less(worstPosition, host.Current.Radius * 2e-6f, "Same terrain points as the legacy faces");
-            Assert.Less(worstColor, 2e-3f, "Same natural colors as the legacy faces (managed vs engine sRGB curve)");
+            // V0.2.0C: the legacy faces are band-limited to their spacing (no detail octave at resolution 16) while the
+            // adaptive patches carry the canonical surface: they differ by the unresolved detail (bounded by the
+            // profile), by the float noise and by up to ~20 m where the fine base rounds a crest kink.
+            float unresolved = host.Current.Height.SurfaceDetail != null
+                ? host.Current.Height.SurfaceDetail.Profile.UnresolvedAmplitude(host.Current.LegacySampleSpacing) * host.Current.Radius : 0f;
+            Assert.Less(worstPosition, unresolved + host.Current.Radius * 1e-5f, "Legacy faces within the unresolved detail of the canonical surface");
+            Assert.Less(worstColor, 1e-2f, "Same natural colors as the legacy faces (elevation tint of the detail apart)");
             WorldArchiveTestUtil.Report(string.Format(CultureInfo.InvariantCulture,
                 "Adaptive vs legacy on the shared lattice (seed 1337): worst position {0:0.0e0} units, worst color {1:0.0e0}", worstPosition, worstColor));
         }

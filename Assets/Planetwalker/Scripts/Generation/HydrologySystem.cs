@@ -52,7 +52,10 @@ namespace Planetwalker.Generation
         /// <summary>Hydrology of a generated planet (elevation from its height generator).</summary>
         public HydrologyResult Compute(HydrologyGrid grid, PlanetInstance planet, HydrologyResult reuse = null)
         {
-            return Compute(grid, planet.Height.GetElevation, planet.SeaLevel, reuse);
+            // Band-limited to the grid and to the legacy world (V0.2.0C): the analysis sees the relief it can resolve
+            // and agrees with the face meshes the water systems are built on, never aliased detail.
+            float spacing = Mathf.PI * 0.5f / grid.Resolution;
+            return Compute(grid, d => planet.GetLegacyElevation(d, spacing), planet.SeaLevel, reuse);
         }
 
         /// <summary>

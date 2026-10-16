@@ -739,7 +739,7 @@ namespace Planetwalker.Tests
                 receivers[cell] = hydrology.GetReceiver(cell);
                 accumulation[cell] = hydrology.GetAccumulation(cell);
                 filled[cell] = hydrology.GetFilledElevation(cell);
-                elevation[cell] = planet.GetElevation(grid.GetCenter(cell));
+                elevation[cell] = planet.GetLegacyElevation(grid.GetCenter(cell), Mathf.PI * 0.5f / grid.Resolution); // legacy world (V0.2.0C)
                 continental[cell] = planet.Height.GetContinentalField(grid.GetCenter(cell));
                 mountains[cell] = planet.Height.GetMountainInfluence(grid.GetCenter(cell));
             }
@@ -759,7 +759,7 @@ namespace Planetwalker.Tests
                 Assert.AreEqual(accumulation[cell], hydrology.GetAccumulation(cell), 0.0);
                 Assert.AreEqual(filled[cell], hydrology.GetFilledElevation(cell), 0.0);
                 Vector3 center = grid.GetCenter(cell);
-                Assert.AreEqual(elevation[cell], planet.GetElevation(center), 0f);
+                Assert.AreEqual(elevation[cell], planet.GetLegacyElevation(center, Mathf.PI * 0.5f / grid.Resolution), 0f); // legacy world (V0.2.0C)
                 Assert.AreEqual(elevation[cell], hydrology.GetElevation(cell), 0f);
                 Assert.AreEqual(continental[cell], planet.Height.GetContinentalField(center), 0f);
                 Assert.AreEqual(mountains[cell], planet.Height.GetMountainInfluence(center), 0f);
@@ -857,7 +857,7 @@ namespace Planetwalker.Tests
 
         static PlanetSurfaceSampler Sampler(PlanetInstance planet, int meshResolution)
         {
-            return Sampler(planet.Height.GetElevation, planet.Radius, meshResolution);
+            return Sampler(planet.GetLegacyElevation, planet.Radius, meshResolution);
         }
 
         /// <summary>A displayed mesh (vertex lists like the face meshes) of any elevation function.</summary>
@@ -950,7 +950,7 @@ namespace Planetwalker.Tests
 
                 // Real planet, display mesh coarser and finer than the hydrology grid.
                 LakeSet lakes = PlanetLakes(868497, 64, null, out PlanetInstance planet);
-                PlanetSurfaceSampler sampler = Sampler(planet.Height.GetElevation, planet.Radius, meshResolution);
+                PlanetSurfaceSampler sampler = Sampler(planet.GetLegacyElevation, planet.Radius, meshResolution);
                 var builder = new LakeMeshBuilder();
                 builder.BuildGeometry(lakes, planet, sampler);
                 AssertLakeMeshValid(builder, sampler);

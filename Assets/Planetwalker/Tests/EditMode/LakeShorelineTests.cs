@@ -85,7 +85,7 @@ namespace Planetwalker.Tests
             LakeSet lakes = new LakeCache().Get(hydrology, new LakeSettings(), new LakeContext(seed, planet.Height.GetMountainInfluence));
             if (!Samplers.TryGetValue((seed, terrainResolution), out PlanetSurfaceSampler sampler))
             {
-                sampler = Sampler(planet.Height.GetElevation, planet.Radius, terrainResolution);
+                sampler = Sampler(planet.GetLegacyElevation, planet.Radius, terrainResolution);
                 Samplers.Add((seed, terrainResolution), sampler);
             }
             RiverNetwork network = Network(hydrology);
@@ -589,7 +589,7 @@ namespace Planetwalker.Tests
 
             foreach (int terrain in new[] { 64, 256 })
             {
-                PlanetSurfaceSampler sampler = Sampler(planet.Height.GetElevation, planet.Radius, terrain);
+                PlanetSurfaceSampler sampler = Sampler(planet.GetLegacyElevation, planet.Radius, terrain);
                 var water = new LakeMeshBuilder();
                 water.BuildGeometry(lakes, planet, sampler);
                 new RiverRibbonBuilder().BuildGeometry(network, sampler, planet, new RiverSettings(), layer, water);

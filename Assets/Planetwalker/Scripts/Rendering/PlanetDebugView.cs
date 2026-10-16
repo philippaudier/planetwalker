@@ -98,10 +98,30 @@ namespace Planetwalker.Rendering
         /// <summary>Clouds: structure of the cloud field: large-scale potential (gray), weather systems (orange),
         /// tropical convection (teal), system centers (red).</summary>
         CloudStructure,
+
+        /// <summary>Surface detail (V0.2.0C): signed displacement of the regional band (blue down, red up, dark = none)
+        /// over the dimmed planetary relief; ocean navy. Which layer made this landform?</summary>
+        SurfaceDetailRegional,
+
+        /// <summary>Surface detail: the local band (hills, ravines).</summary>
+        SurfaceDetailLocal,
+
+        /// <summary>Surface detail: the near-surface band.</summary>
+        SurfaceDetailMicro,
+
+        /// <summary>Surface detail: the three bands combined.</summary>
+        SurfaceDetailCombined,
     }
 
     public static class PlanetDebugViews
     {
+        /// <summary>The surface detail views (V0.2.0C): terrain only, no analysis; the adaptive terrain shows them too.</summary>
+        public static bool IsSurfaceDetail(PlanetDebugView view)
+        {
+            return view == PlanetDebugView.SurfaceDetailRegional || view == PlanetDebugView.SurfaceDetailLocal
+                || view == PlanetDebugView.SurfaceDetailMicro || view == PlanetDebugView.SurfaceDetailCombined;
+        }
+
         /// <summary>Views that need a hydrology analysis (hydrology, river and lake views).</summary>
         public static bool NeedsHydrology(PlanetDebugView view)
         {

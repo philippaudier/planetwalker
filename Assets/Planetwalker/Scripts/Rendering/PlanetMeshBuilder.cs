@@ -117,7 +117,9 @@ namespace Planetwalker.Rendering
                 {
                     int i = x + y * edge;
                     Vector3 direction = CubeSphereGenerator.GetSphereDirection(face, x, y, resolution);
-                    float elevation = height.GetElevation(direction);
+                    // Band-limited to the mesh spacing (V0.2.0C): the legacy world's surface, which the water systems
+                    // built on it also sample; detail octaves below the spacing would only alias here.
+                    float elevation = height.GetElevation(direction, sampleAngle);
                     Vector3 normal = height.GetSurfaceNormal(direction, elevation, sampleAngle);
                     float vertexRadius = radius * (1f + elevation);
 
@@ -209,6 +211,10 @@ namespace Planetwalker.Rendering
                 }
             }
 
+            if (PlanetDebugViews.IsSurfaceDetail(context.View))
+            {
+                return SurfaceDetailDebugColors.Evaluate(height, context.View, direction, elevationAboveSea > 0f);
+            }
             if (PlanetDebugViews.IsCloud(context.View))
             {
                 return CloudDebugColors.Evaluate(context.Clouds, context.View, direction, elevationAboveSea > 0f);

@@ -97,7 +97,7 @@ namespace Planetwalker.Tests
                         int v = i + j * (r + 1);
                         Vector3 direction = CubeSphereCoordinates.LatticeDirection(leaf.Face, leaf.X * r + i, leaf.Y * r + j, lattice);
                         var key = Key(direction);
-                        var p = new Vector3d(data.Origin) + new Vector3d(data.Vertices[v]);
+                        Vector3d p = new Vector3d(data.Origin) + new Vector3d(data.Vertices[v]);
                         if (!ids.TryGetValue(key, out int id))
                         {
                             id = ids.Count;
@@ -158,14 +158,6 @@ namespace Planetwalker.Tests
             return n;
         }
 
-        struct Vector3d
-        {
-            public double X, Y, Z;
-            public Vector3d(Vector3 v) { X = v.x; Y = v.y; Z = v.z; }
-            public static Vector3d operator +(Vector3d a, Vector3d b) => new Vector3d { X = a.X + b.X, Y = a.Y + b.Y, Z = a.Z + b.Z };
-            public static Vector3d operator -(Vector3d a, Vector3d b) => new Vector3d { X = a.X - b.X, Y = a.Y - b.Y, Z = a.Z - b.Z };
-            public double Magnitude => Math.Sqrt(X * X + Y * Y + Z * Z);
-        }
 
         // ------------------------------------------------------------ A - D, H, I (watertight surface)
 
@@ -190,10 +182,14 @@ namespace Planetwalker.Tests
                 Assert.AreEqual(2, report.Euler, "V - E + F = 2: one closed sphere, no hole, no overlap");
                 Assert.Greater(report.TransitionEdges, 0, "Fine / coarse transitions were stitched");
                 Assert.Less(report.WorstPositionSpread, snapshot.Planet.Radius * 1e-6, "Shared vertices agree in planet space (float rounding only)");
-                Assert.AreEqual(0.0, report.WorstNormalSpread, "Shared vertices have identical normals on every side (levels, faces)");
-                Assert.AreEqual(0.0, report.WorstColorSpread, "Shared vertices have identical colors on every side");
-                lines.Add(string.Format(CultureInfo.InvariantCulture, "seed {0}: {1} patches L{2}-{3}, {4} transition edges, V {5} E {6} F {7}, worst shared-vertex spread {8:0.0e0} units",
-                    c.seed, report.Patches, selection.MinLevel, selection.MaxLevel, report.TransitionEdges, report.Vertices, report.Edges, report.Faces, report.WorstPositionSpread));
+                // Normals are band-limited per level (V0.2.0C): a vertex shared by two levels differs by the one octave
+                // between their band limits. Bounded, not zero; equal levels and face edges still agree exactly.
+                Assert.Less(report.WorstNormalSpread, 0.8, "Normals of shared vertices differ by less than 47 degrees across levels (one octave of relief at most)");
+                // The classic ramp tints rock by the normal's steepness, so colors follow the per-level normals here (the
+                // Natural Planet surface reads the slope field instead and has no such seam).
+                Assert.Less(report.WorstColorSpread, 0.15, "Colors of shared vertices differ only through the normal's steepness");
+                lines.Add(string.Format(CultureInfo.InvariantCulture, "seed {0}: {1} patches L{2}-{3}, {4} transition edges, V {5} E {6} F {7}, worst shared-vertex spread {8:0.0e0} units, worst normal spread {9:0.000} (chord)",
+                    c.seed, report.Patches, selection.MinLevel, selection.MaxLevel, report.TransitionEdges, report.Vertices, report.Edges, report.Faces, report.WorstPositionSpread, report.WorstNormalSpread));
             }
             WorldArchiveTestUtil.Report("Watertight adaptive surfaces:\n" + string.Join("\n", lines));
         }
@@ -426,11 +422,13 @@ namespace Planetwalker.Tests
             for (int v = 0; v < snapshot.Topology.GridVertexCount; v += 5)
             {
                 int i = v % (r + 1), j = v / (r + 1);
-                Vector3 direction = CubeSphereCoordinates.LatticeDirection(id.Face, id.X * r + i, id.Y * r + j, r << id.Level);
-                float elevation = planet.Height.GetElevation(direction);
+                Vector3d precise = CubeSphereCoordinates.LatticeDirectionD(id.Face, id.X * r + i, id.Y * r + j, r << id.Level);
+                Vector3 direction = precise.ToVector3();
+                float elevation = planet.Height.GetElevation(precise);
                 Vector3 expected = direction * (planet.Radius * (1f + elevation));
                 Assert.Less(((data.Origin + data.Vertices[v]) - expected).magnitude, planet.Radius * 1e-6f, "Existing elevation field");
-                Vector3 normal = planet.Height.GetSurfaceNormal(direction, elevation, snapshot.NormalSampleAngle);
+                Assert.Less(Mathf.Abs(elevation - planet.Height.GetElevation(direction)), 1e-5f, "Float and double paths agree (the fine base rounds crest kinks by up to ~20 m)");
+                Vector3 normal = planet.Height.GetSurfaceNormal(precise, snapshot.NormalAngle(id.Level));
                 Assert.AreEqual(normal, data.Normals[v]);
                 Color color = AdaptivePatchGeometryBuilder.ToLinear(PlanetMeshBuilder.TerrainColor(null, snapshot.Ramp, planet.SeaLevel, direction, elevation, normal));
                 Assert.AreEqual(color, data.Colors[v], "The legacy color rule");

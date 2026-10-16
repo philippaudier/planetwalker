@@ -26,9 +26,25 @@ namespace Planetwalker.Persistence
     {
         /// <summary>
         /// Generator versions whose archives the current generator reproduces exactly: the current one and earlier
-        /// versions with identical procedural algorithms and defaults (V0.1.3B only added the World Library).
+        /// versions with identical procedural algorithms and defaults. V0.1.3B only added the World Library;
+        /// V0.2.0C added the surface detail, which <see cref="ApplyCompatibilityDefaults"/> turns off for archives
+        /// that predate it, so their terrain stays bit-identical.
         /// </summary>
-        static readonly string[] ExactGeneratorVersions = { PlanetArchive.CurrentGeneratorVersion, "Genesis V0.1.3A" };
+        static readonly string[] ExactGeneratorVersions = { PlanetArchive.CurrentGeneratorVersion, "Genesis V0.1.3A", "Genesis V0.1.3B" };
+
+        /// <summary>The terrain member whose absence marks an archive written before V0.2.0C.</summary>
+        const string SurfaceDetailField = "terrain.surfaceDetail";
+
+        /// <summary>
+        /// Fields every archive before V0.2.0C lacks and whose defaults are a documented compatibility rule (the
+        /// terrain is bit-identical with them): not worth a "defaults used" warning when a world is loaded.
+        /// </summary>
+        public static readonly string[] CompatibilityDefaultFields =
+        {
+            "terrain.radiusKilometers", SurfaceDetailField, "terrain.regionalDetail", "terrain.localDetail", "terrain.microDetail",
+        };
+
+        public static bool IsCompatibilityDefault(string field) => System.Array.IndexOf(CompatibilityDefaultFields, field) >= 0;
 
         const string GeneratorFamily = "Genesis V";
         const int MaxGeneratorVersionLength = 64;
@@ -241,6 +257,7 @@ namespace Planetwalker.Persistence
                 }
                 SettingsFields.Read(obj, group.Value, group.Key, report, Excluded(group.Key));
             }
+            ApplyCompatibilityDefaults(c, report);
 
             // Presentation (optional, and so are its parts).
             JsonValue presentation = root.Find("presentation");
@@ -306,6 +323,29 @@ namespace Planetwalker.Persistence
             archive.SchemaVersion = PlanetArchive.CurrentSchemaVersion;
             result.Archive = archive;
             return result;
+        }
+
+        /// <summary>
+        /// Compatibility rules for fields whose documented default differs from what an older archive means by
+        /// its absence (V0.2.0C). Applied once the settings groups are read, keyed on presence only: a present
+        /// field is always honored, whatever the generator version. Deliberately silent (no warning): the
+        /// archive is reconstructed exactly, nothing was lost or guessed.
+        /// <list type="bullet">
+        /// <item><c>terrain.surfaceDetail</c> absent (every archive before V0.2.0C): surface detail off. New
+        /// worlds start detailed (the C# default is true), but an older world must never silently gain detail;
+        /// with it off the terrain is bit-identical to what V0.1.3A / V0.1.3B generated.</item>
+        /// </list>
+        /// </summary>
+        public static void ApplyCompatibilityDefaults(WorldConfiguration configuration, ArchiveReport report)
+        {
+            foreach (string field in report.DefaultedFields)
+            {
+                if (field == SurfaceDetailField)
+                {
+                    configuration.Terrain.surfaceDetail = false;
+                    return;
+                }
+            }
         }
 
         public static GeneratorCompatibility CompatibilityOf(string generatorVersion)

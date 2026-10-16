@@ -1,3 +1,5 @@
+using System;
+using Planetwalker.Core;
 using UnityEngine;
 
 namespace Planetwalker.Generation
@@ -73,6 +75,70 @@ namespace Planetwalker.Generation
         /// distributes vertices more evenly than a plain normalization (less crowding
         /// near cube corners).
         /// </summary>
+        /// <summary>Cube face whose region contains a direction (largest component; the generator's numbering).</summary>
+        public static int DominantFace(Vector3d d)
+        {
+            double ax = Math.Abs(d.x), ay = Math.Abs(d.y), az = Math.Abs(d.z);
+            if (ay >= ax && ay >= az)
+            {
+                return d.y >= 0 ? 0 : 1;
+            }
+            if (ax >= az)
+            {
+                return d.x >= 0 ? 3 : 2;
+            }
+            return d.z >= 0 ? 4 : 5;
+        }
+
+        /// <summary>
+        /// Inverse projection in double precision (V0.2.0C): the face and face coordinates (a, b) in [-1, 1] of a
+        /// direction, by Newton iterations on the cube-to-sphere mapping from the gnomonic guess (accurate to
+        /// ~1e-13; the float inverse of the adaptive terrain delegates here).
+        /// </summary>
+        public static int DirectionToFaceCoordinates(Vector3d direction, out double a, out double b)
+        {
+            int face = DominantFace(direction);
+            GetFaceAxes(face, out Vector3 normal, out Vector3 axisA, out Vector3 axisB);
+            double dn = Vector3d.Dot(direction, new Vector3d(normal));
+            double u = Vector3d.Dot(direction, new Vector3d(axisA)) / dn;
+            double v = Vector3d.Dot(direction, new Vector3d(axisB)) / dn;
+            double x = Math.Max(-1.0, Math.Min(1.0, u)), y = Math.Max(-1.0, Math.Min(1.0, v));
+            for (int iteration = 0; iteration < 12; iteration++)
+            {
+                Gnomonic(x, y, out double pu, out double pv);
+                const double h = 1e-7;
+                Gnomonic(x + h, y, out double au, out double av);
+                Gnomonic(x, y + h, out double bu, out double bv);
+                double j00 = (au - pu) / h, j10 = (av - pv) / h, j01 = (bu - pu) / h, j11 = (bv - pv) / h;
+                double det = j00 * j11 - j01 * j10;
+                if (Math.Abs(det) < 1e-18)
+                {
+                    break;
+                }
+                double ru = u - pu, rv = v - pv;
+                x = Math.Max(-1.0, Math.Min(1.0, x + (j11 * ru - j01 * rv) / det));
+                y = Math.Max(-1.0, Math.Min(1.0, y + (j00 * rv - j10 * ru) / det));
+                if (Math.Abs(ru) + Math.Abs(rv) < 1e-15)
+                {
+                    break;
+                }
+            }
+            a = x;
+            b = y;
+            return face;
+        }
+
+        /// <summary>The cube-to-sphere mapping in the face frame (a, b, 1), projected gnomonically (double).</summary>
+        static void Gnomonic(double a, double b, out double u, out double v)
+        {
+            double a2 = a * a, b2 = b * b;
+            double sa = a * Math.Sqrt(1.0 - b2 * 0.5 - 0.5 + b2 / 3.0);
+            double sb = b * Math.Sqrt(1.0 - a2 * 0.5 - 0.5 + a2 / 3.0);
+            double sn = Math.Sqrt(1.0 - a2 * 0.5 - b2 * 0.5 + a2 * b2 / 3.0);
+            u = sa / sn;
+            v = sb / sn;
+        }
+
         public static Vector3 CubeToSphere(Vector3 p)
         {
             float x2 = p.x * p.x;

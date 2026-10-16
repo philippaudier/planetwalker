@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using Planetwalker.Generation;
 using UnityEngine;
 
 namespace Planetwalker.Terrain
@@ -236,12 +237,27 @@ namespace Planetwalker.Terrain
             selection.Version++;
         }
 
-        /// <summary>Geometric error bound (rendering units) of a patch at a level, for the current planet.</summary>
+        /// <summary>
+        /// Geometric error bound (rendering units) of a patch at a level, for the current planet. With surface
+        /// detail (V0.2.0C) two terms are added, from the detail profile's frequency bands: the slope the
+        /// octaves resolved at this level's spacing can add (typical, not peak: a peak bound over-refines
+        /// everywhere by a constant factor without changing which patches win the budget), and the displacement
+        /// of the octaves it cannot resolve (the aliasing error of its vertices).
+        /// </summary>
         public static float GeometricError(TerrainElevationSampler planet, AdaptiveTerrainSettings settings, int level)
         {
-            float spacing = 1.25f * planet.Radius * Mathf.PI * 0.5f / ((float)settings.patchResolution * (1 << level));
+            float angle = Mathf.PI * 0.5f / ((float)settings.patchResolution * (1 << level));
+            float spacing = 1.25f * planet.Radius * angle;
             float relief = planet.MaxRadius - planet.MinRadius;
-            return Mathf.Min(relief, settings.assumedMaxSlope * spacing) + spacing * spacing / (8f * planet.Radius);
+            float slope = settings.assumedMaxSlope;
+            float unresolved = 0f;
+            TerrainDetailProfile detail = planet.Planet.Height.SurfaceDetail?.Profile;
+            if (detail != null)
+            {
+                slope += detail.TypicalSlope(angle);
+                unresolved = detail.UnresolvedAmplitude(angle) * planet.Radius;
+            }
+            return Mathf.Min(relief, slope * spacing + unresolved) + spacing * spacing / (8f * planet.Radius);
         }
 
         /// <summary>Selects the covering for a camera. Reuses its buffers: no steady-state allocation.</summary>

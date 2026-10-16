@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 namespace Planetwalker.Generation
@@ -78,6 +79,20 @@ namespace Planetwalker.Generation
             float fx = x - x0;
             float fy = y - y0;
             float fz = z - z0;
+            return Lattice(x0, y0, z0, fx, fy, fz, Fade(fx), Fade(fy), Fade(fz), seed);
+        }
+
+        /// <summary>
+        /// <see cref="Gradient(float, float, float, int)"/> with double-precision coordinates (V0.2.0C): the
+        /// lattice cell and the position inside it are resolved in double, so coordinates of magnitude 1e5-1e6
+        /// (fine surface-detail octaves) keep their sub-cell precision; the blend itself runs in float. For
+        /// coordinates that are exactly representable in float, the result equals the float overload.
+        /// </summary>
+        public static float Gradient(double x, double y, double z, int seed)
+        {
+            double fx0 = Math.Floor(x), fy0 = Math.Floor(y), fz0 = Math.Floor(z);
+            int x0 = (int)fx0, y0 = (int)fy0, z0 = (int)fz0;
+            float fx = (float)(x - fx0), fy = (float)(y - fy0), fz = (float)(z - fz0);
             return Lattice(x0, y0, z0, fx, fy, fz, Fade(fx), Fade(fy), Fade(fz), seed);
         }
 

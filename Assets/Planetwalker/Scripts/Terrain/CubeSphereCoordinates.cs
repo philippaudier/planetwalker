@@ -1,4 +1,5 @@
 using System;
+using Planetwalker.Core;
 using Planetwalker.Generation;
 using UnityEngine;
 
@@ -58,6 +59,36 @@ namespace Planetwalker.Terrain
                 throw new ArgumentOutOfRangeException(nameof(size), "Lattice larger than 2^24: coordinates would not be exact.");
             }
             return FaceToDirection(face, CubeSphereGenerator.GridCoordinate(i, size), CubeSphereGenerator.GridCoordinate(j, size));
+        }
+
+        /// <summary>
+        /// <see cref="LatticeDirection"/> in double precision (V0.2.0C): the same rational lattice coordinate and the
+        /// same cube-to-sphere mapping evaluated in double, so a vertex shared by two patches (any levels, across a
+        /// face edge) still has a bit-identical direction, now with ~1e-16 rather than ~6e-8 of angular precision
+        /// (0.4 m at Earth scale, visible as moire at a 100 m altitude). Positions and fine detail use it; the float
+        /// direction keeps feeding what must match the legacy faces bit for bit.
+        /// </summary>
+        public static Vector3d LatticeDirectionD(int face, int i, int j, int size)
+        {
+            if (size > MaxLatticeSize)
+            {
+                throw new ArgumentOutOfRangeException(nameof(size), "Lattice larger than 2^24: coordinates would not be exact.");
+            }
+            CubeSphereGenerator.GetFaceAxes(face, out Vector3 normal, out Vector3 axisA, out Vector3 axisB);
+            double a = (2.0 * i - size) / size, b = (2.0 * j - size) / size;
+            var p = new Vector3d(normal.x + axisA.x * a + axisB.x * b, normal.y + axisA.y * a + axisB.y * b, normal.z + axisA.z * a + axisB.z * b);
+            double x2 = p.x * p.x, y2 = p.y * p.y, z2 = p.z * p.z;
+            var s = new Vector3d(
+                p.x * Math.Sqrt(1.0 - y2 * 0.5 - z2 * 0.5 + y2 * z2 / 3.0),
+                p.y * Math.Sqrt(1.0 - x2 * 0.5 - z2 * 0.5 + x2 * z2 / 3.0),
+                p.z * Math.Sqrt(1.0 - x2 * 0.5 - y2 * 0.5 + x2 * y2 / 3.0));
+            return s.Normalized;
+        }
+
+        /// <summary>Direction of the patch center in double precision.</summary>
+        public static Vector3d CenterDirectionD(PlanetPatchId id)
+        {
+            return LatticeDirectionD(id.Face, id.X * 2 + 1, id.Y * 2 + 1, id.GridSize * 2);
         }
 
         /// <summary>Cube face whose region contains the direction (largest component; ties resolved like the surface sampler).</summary>

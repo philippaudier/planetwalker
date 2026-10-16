@@ -398,6 +398,10 @@ namespace Planetwalker.Tests
                 {
                     field.SetValue(b, (float)field.GetValue(a) + 0.001f);
                 }
+                else if (field.FieldType == typeof(bool))
+                {
+                    field.SetValue(b, !(bool)field.GetValue(a));
+                }
                 else
                 {
                     Assert.Fail("Unhandled field type " + field.FieldType + " for " + field.Name);
@@ -429,7 +433,8 @@ namespace Planetwalker.Tests
             // The stored real elevation is the terrain itself, kept separate from the corrected one.
             for (int cell = 0; cell < result.Grid.CellCount; cell += 97)
             {
-                Assert.AreEqual(planet.GetElevation(result.Grid.GetCenter(cell)), result.GetElevation(cell), 0f);
+                // The legacy world's surface (V0.2.0C): band-limited to the grid and the face meshes.
+                Assert.AreEqual(planet.GetLegacyElevation(result.Grid.GetCenter(cell), Mathf.PI * 0.5f / result.Grid.Resolution), result.GetElevation(cell), 0f);
             }
         }
 

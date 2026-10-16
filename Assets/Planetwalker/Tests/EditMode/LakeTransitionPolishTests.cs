@@ -78,7 +78,7 @@ namespace Planetwalker.Tests
             LakeSet lakes = new LakeCache().Get(result, new LakeSettings(), new LakeContext(seed, planet.Height.GetMountainInfluence));
             if (!Samplers.TryGetValue((seed, terrain), out PlanetSurfaceSampler sampler))
             {
-                sampler = Sampler(planet.Height.GetElevation, planet.Radius, terrain);
+                sampler = Sampler(planet.GetLegacyElevation, planet.Radius, terrain);
                 Samplers.Add((seed, terrain), sampler);
             }
             RiverNetwork network = Network(result);

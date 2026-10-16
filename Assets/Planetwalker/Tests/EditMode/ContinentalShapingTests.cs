@@ -111,8 +111,10 @@ namespace Planetwalker.Tests
         [Test]
         public void CoastalComplexity_ModifiesCoastsOnly()
         {
-            var smooth = new PlanetDefinition { coastalComplexity = 0f };
-            var complex = new PlanetDefinition { coastalComplexity = 1f };
+            // Planetary terrain only: the V0.2.0C detail reads a relief field whose bilinear footprint (80 km) reaches
+            // past the coastal band, so it would differ by ~1e-8 just outside it (tested separately).
+            var smooth = new PlanetDefinition { coastalComplexity = 0f, surfaceDetail = false };
+            var complex = new PlanetDefinition { coastalComplexity = 1f, surfaceDetail = false };
             var gs = new PlanetHeightGenerator(smooth);
             var gc = new PlanetHeightGenerator(complex);
 

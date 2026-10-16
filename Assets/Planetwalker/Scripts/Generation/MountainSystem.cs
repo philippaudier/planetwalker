@@ -222,8 +222,21 @@ namespace Planetwalker.Generation
         /// </summary>
         public float Evaluate(Vector3 p, out float coreInfluence)
         {
+            return Evaluate(p, out coreInfluence, out _, out _);
+        }
+
+        /// <summary>
+        /// Same profile as <see cref="Evaluate(Vector3, out float)"/> (identical arithmetic), also returning the
+        /// mountain influence of <see cref="GetInfluence"/> and the local cross-range stretch vector used to
+        /// orient the ridges (zero outside ranges): the context the surface detail (V0.2.0C) builds on, without
+        /// a second envelope evaluation.
+        /// </summary>
+        public float Evaluate(Vector3 p, out float coreInfluence, out float influence, out Vector3 anisotropy)
+        {
             SampleEnvelope(p, out float core, out float foothills, out float province, out _, out Vector3 crossSum, out float weightSum);
             coreInfluence = core;
+            influence = 1f - (1f - core) * (1f - 0.5f * foothills) * (1f - 0.25f * province);
+            anisotropy = weightSum > 0f ? crossSum * ((RidgeAnisotropy - 1f) / weightSum) : Vector3.zero;
             if (core <= 0f && foothills <= 0f && province <= 0f)
             {
                 return 0f;

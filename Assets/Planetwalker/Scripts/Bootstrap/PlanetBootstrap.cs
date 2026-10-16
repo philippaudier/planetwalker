@@ -179,6 +179,8 @@ namespace Planetwalker.Bootstrap
             GenerationCount++;
             if (orbitCamera != null)
             {
+                // Altitude, zoom and clip planes follow the terrain under the camera (V0.2.0C: canonical elevation).
+                orbitCamera.SurfaceRadius = SurfaceRadiusUnderCamera;
                 // Frame the planet at startup; afterwards keep the user's view.
                 orbitCamera.FramePlanet(visual.BoundingRadius, first);
             }
@@ -189,6 +191,12 @@ namespace Planetwalker.Bootstrap
                 _ = ThumbnailUpdater; // listens to saves from the start
             }
             PlanetGenerated?.Invoke(Current);
+        }
+
+        /// <summary>Terrain radius (render units) under a planet-space direction: the canonical surface.</summary>
+        float SurfaceRadiusUnderCamera(Vector3 direction)
+        {
+            return Current != null ? Current.GetSurfaceRadius(direction) : visual != null ? visual.BoundingRadius : 0f;
         }
 
         /// <summary>Picks a new random seed (does not regenerate).</summary>
@@ -233,6 +241,8 @@ namespace Planetwalker.Bootstrap
             }
             // The solar clock (V0.1.2D) orients this light: the single sun of every shader.
             visual.SetSun(star);
+            // Floating origin (V0.2.0C): the orbit camera finds it through its target.
+            PlanetRenderFrame.GetOrCreate(visual.transform);
 
             if (orbitCamera == null)
             {

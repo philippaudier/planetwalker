@@ -187,7 +187,7 @@ namespace Planetwalker.Rendering
         /// </summary>
         public static bool IsSubmerged(LakeSet lakes, PlanetInstance planet, int lake, Vector3 direction)
         {
-            return IsSubmerged(lakes, planet.Height.GetElevation, lake, direction);
+            return IsSubmerged(lakes, planet.GetLegacyElevation, lake, direction); // the legacy world's surface (V0.2.0C)
         }
 
         public static bool IsSubmerged(LakeSet lakes, Func<Vector3, float> elevation, int lake, Vector3 direction)

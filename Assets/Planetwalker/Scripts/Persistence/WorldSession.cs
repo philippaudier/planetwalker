@@ -371,10 +371,18 @@ namespace Planetwalker.Persistence
             stopwatch.Stop();
 
             var warnings = new List<string>(read.Read.Report.Warnings);
-            if (read.Read.Report.DefaultedFields.Count > 0)
+            // Documented compatibility defaults (V0.2.0C fields missing from older archives) are expected, not warned.
+            var defaulted = new List<string>();
+            foreach (string field in read.Read.Report.DefaultedFields)
             {
-                warnings.Add("Defaults used for " + read.Read.Report.DefaultedFields.Count + " missing optional field(s): "
-                    + string.Join(", ", read.Read.Report.DefaultedFields) + ".");
+                if (!PlanetArchiveSerializer.IsCompatibilityDefault(field))
+                {
+                    defaulted.Add(field);
+                }
+            }
+            if (defaulted.Count > 0)
+            {
+                warnings.Add("Defaults used for " + defaulted.Count + " missing optional field(s): " + string.Join(", ", defaulted) + ".");
             }
             return new WorldOperationResult
             {

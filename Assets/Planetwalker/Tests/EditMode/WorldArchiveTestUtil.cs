@@ -195,6 +195,11 @@ namespace Planetwalker.Tests
             t.mountainRangeCoverage = 0.7f;
             t.mountainRangeLength = 1.2f;
             t.mountainRuggedness = 0.4f;
+            t.radiusKilometers = 3390f; // Mars
+            t.surfaceDetail = !flipFlags;
+            t.regionalDetail = 1.4f;
+            t.localDetail = 0.6f;
+            t.microDetail = 1.8f;
 
             c.Hydrology.resolution = HydrologySettings.PreviewResolution;
             c.Hydrology.riverNetworkThreshold = 1e-3f;

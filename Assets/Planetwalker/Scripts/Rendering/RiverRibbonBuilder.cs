@@ -894,7 +894,7 @@ namespace Planetwalker.Rendering
                     }
                 }
             }
-            return lake >= 0 && planet.GetElevation(direction) < lakes.GetLake(lake).Level ? lake : -1;
+            return lake >= 0 && planet.GetLegacyElevation(direction) < lakes.GetLake(lake).Level ? lake : -1; // legacy world (V0.2.0C)
         }
 
         static double DeficitAt(RiverNetwork network, LakeRiverLayer layer, int river, float param)

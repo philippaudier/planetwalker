@@ -1,0 +1,48 @@
+using Planetwalker.Generation;
+using UnityEngine;
+
+namespace Planetwalker.Rendering
+{
+    /// <summary>
+    /// Surface detail debug views (V0.2.0C): the signed displacement of one band (or all) as a diverging color,
+    /// blue below the planetary terrain, red above, dark gray where the band adds nothing, scaled by the band's
+    /// amplitude bound; a faint elevation tint keeps the relief readable; ocean navy. Diagnostic only: reads the
+    /// same canonical sampler as the terrain, never changes it.
+    /// </summary>
+    public static class SurfaceDetailDebugColors
+    {
+        static readonly Color Down = new Color(0.20f, 0.45f, 1.0f);
+        static readonly Color Up = new Color(1.0f, 0.35f, 0.15f);
+        static readonly Color Neutral = new Color(0.16f, 0.16f, 0.17f);
+        static readonly Color Ocean = new Color(0.03f, 0.05f, 0.14f);
+        static readonly Color NoDetail = new Color(0.30f, 0.28f, 0.26f);
+
+        public static Color Evaluate(PlanetHeightGenerator height, PlanetDebugView view, Vector3 direction, bool land)
+        {
+            if (!land)
+            {
+                return Ocean;
+            }
+            TerrainDetail detail = height.SurfaceDetail;
+            if (detail == null)
+            {
+                return NoDetail;
+            }
+            float baseElevation = height.SampleLayers(direction, out TerrainDetailSample sample);
+            float value, scale;
+            float[] bands = detail.Profile.BandAmplitude;
+            switch (view)
+            {
+                case PlanetDebugView.SurfaceDetailRegional: value = sample.Regional; scale = bands[0]; break;
+                case PlanetDebugView.SurfaceDetailLocal: value = sample.Local; scale = bands[1]; break;
+                case PlanetDebugView.SurfaceDetailMicro: value = sample.Micro; scale = bands[2]; break;
+                default: value = sample.Total; scale = bands[0] + bands[1] + bands[2]; break;
+            }
+            float t = scale > 0f ? Mathf.Clamp(value / (1.5f * scale), -1f, 1f) : 0f;
+            Color color = Color.Lerp(Neutral, t < 0f ? Down : Up, Mathf.Sqrt(Mathf.Abs(t)));
+            // Elevation tint: higher planetary terrain slightly brighter (relief stays readable).
+            float tint = 0.85f + 0.3f * Mathf.Clamp01((baseElevation - height.SeaLevel) / 0.03f);
+            return new Color(color.r * tint, color.g * tint, color.b * tint, 1f);
+        }
+    }
+}

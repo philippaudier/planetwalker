@@ -313,7 +313,7 @@ namespace Planetwalker.UI
                 && oceanShadingToggle != null && atmosphereToggle != null && terminatorSlider != null
                 && cloudToggle != null && cloudAltitudeSlider != null && cloudLegendBar != null && cloudSkyLabel != null
                 && solarTimeSlider != null && contemplateButton != null && showControlsButton != null && contemplationHint != null
-                && ArchiveLayoutComplete() && AdaptiveLayoutComplete())
+                && ArchiveLayoutComplete() && AdaptiveLayoutComplete() && SurfaceDetailLayoutComplete())
             {
                 return;
             }
@@ -400,6 +400,7 @@ namespace Planetwalker.UI
             biomeSharpnessSlider.onValueChanged.AddListener(OnBiomeSettingChanged);
             biomeAlpineSlider.onValueChanged.AddListener(OnBiomeSettingChanged);
             EnableAdaptiveTerrain();
+            EnableSurfaceDetail();
             EnableArchive();
             if (bootstrap != null)
             {
@@ -480,6 +481,7 @@ namespace Planetwalker.UI
             biomeSharpnessSlider.onValueChanged.RemoveListener(OnBiomeSettingChanged);
             biomeAlpineSlider.onValueChanged.RemoveListener(OnBiomeSettingChanged);
             DisableAdaptiveTerrain();
+            DisableSurfaceDetail();
             DisableArchive();
             if (bootstrap != null)
             {
@@ -1633,6 +1635,7 @@ namespace Planetwalker.UI
             {
                 hydrologyToggle.SetIsOnWithoutNotify(shown);
             }
+            SyncSurfaceDetailToggle(visual);
             bool networkShown = visual.DebugView == PlanetDebugView.RiverNetwork;
             if (riverDebugToggle.isOn != networkShown)
             {
@@ -1806,6 +1809,7 @@ namespace Planetwalker.UI
             definition.mountainRuggedness = ruggednessSlider.value;
             definition.seaLevel = seaLevelSlider.value;
             definition.resolution = Mathf.RoundToInt(resolutionSlider.value) * 16;
+            ApplySurfaceDetailControlsToDefinition(definition);
             definition.Sanitize();
         }
 
@@ -1826,6 +1830,7 @@ namespace Planetwalker.UI
             ruggednessSlider.SetValueWithoutNotify(definition.mountainRuggedness);
             seaLevelSlider.SetValueWithoutNotify(definition.seaLevel);
             resolutionSlider.SetValueWithoutNotify(definition.resolution / 16f);
+            SyncSurfaceDetailFromDefinition(definition);
             UpdateValueLabels();
             syncing = false;
         }
@@ -1836,6 +1841,7 @@ namespace Planetwalker.UI
             {
                 return;
             }
+            UpdateSurfaceDetailStats(planet);
             PlanetDefinition d = planet.Definition;
             int vertexCount = 6 * (d.resolution + 1) * (d.resolution + 1);
             statsText.text = string.Format(CultureInfo.InvariantCulture,
@@ -1930,6 +1936,8 @@ namespace Planetwalker.UI
             seaLevelSlider = CreateSliderRow(panel, font, "Sea level", PlanetDefinition.MinSeaLevel, PlanetDefinition.MaxSeaLevel, false, out seaLevelValue);
             resolutionSlider = CreateSliderRow(panel, font, "Resolution",
                 Mathf.CeilToInt(PlanetDefinition.MinResolution / 16f), PlanetDefinition.MaxResolution / 16, true, out resolutionValue);
+
+            BuildSurfaceDetailSection(panel, font);
 
             CreateSpacer(panel, 4f);
             CreateLabel(panel, font, "SURFACE", 13, FontStyle.Bold, AccentColor, 18f);

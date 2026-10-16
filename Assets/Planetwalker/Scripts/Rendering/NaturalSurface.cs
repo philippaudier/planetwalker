@@ -96,7 +96,8 @@ namespace Planetwalker.Rendering
                 return cached;
             }
             grid ??= new HydrologyGrid(TerrainSlopeField.Resolution);
-            cached = new TerrainSlopeField(grid, planet.Height.GetElevation, planet.SeaLevel);
+            float spacing = Mathf.PI * 0.5f / grid.Resolution; // band-limited to the grid and the legacy world (V0.2.0C)
+            cached = new TerrainSlopeField(grid, d => planet.GetLegacyElevation(d, spacing), planet.SeaLevel);
             cachedTerrain = planet.Definition.Clone();
             ComputeCount++;
             return cached;

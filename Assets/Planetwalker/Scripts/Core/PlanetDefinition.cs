@@ -11,8 +11,9 @@ namespace Planetwalker.Core
     /// dimensionless and expressed as a fraction of the reference radius. An elevation of
     /// 0.01 means "1% of the radius above the reference sphere". The terrain shape is
     /// therefore independent of <see cref="radius"/>, which is only a rendering scale.
-    /// Physical units (e.g. a radius in kilometres) can later be introduced next to the
-    /// rendering radius without changing the generator.
+    /// The physical radius (<see cref="radiusKilometers"/>, V0.2.0C) sits next to the rendering
+    /// radius without changing the generator: see <see cref="PlanetScale"/> for the contract
+    /// (horizontal distances physical, vertical relief artistic).
     ///
     /// Frequencies are expressed in noise cycles per unit of sphere direction
     /// (the noise is sampled on the unit sphere), so they are also scale independent.
@@ -40,6 +41,9 @@ namespace Planetwalker.Core
         public const float MinMountainRangeLength = 0.5f;
         public const float MaxMountainRangeLength = 2f;
         public const float MaxContinentalWarpFrequency = 4f;
+        public const float MinRadiusKilometers = (float)PlanetScale.MinRadiusKilometers;
+        public const float MaxRadiusKilometers = (float)PlanetScale.MaxRadiusKilometers;
+        public const float MaxSurfaceDetailLevel = 2f;
 
         [Tooltip("Master seed. Same seed + same parameters = same planet.")]
         public int seed = 1337;
@@ -118,6 +122,35 @@ namespace Planetwalker.Core
         [Range(0f, 1f)]
         public float mountainRuggedness = 0.5f;
 
+        // Physical scale and surface detail (V0.2.0C). Archives older than V0.2.0C have no surface detail:
+        // the serializer turns it off for them (their terrain stays exactly what they recorded), while new
+        // worlds start with it on.
+
+        [Tooltip("Physical radius of the planet in kilometres (6371 = Earth). Sets the real size of distances "
+            + "along the surface and the scale of the surface detail; the rendering size (radius) is unchanged. "
+            + "Range [10, 100000].")]
+        [Range(MinRadiusKilometers, MaxRadiusKilometers)]
+        public float radiusKilometers = (float)PlanetScale.DefaultRadiusKilometers;
+
+        [Tooltip("Deterministic multi-scale surface detail (regional valleys and ridges, local hills and ravines, "
+            + "near-surface relief) added to the planetary terrain. Off reproduces the V0.2.0B terrain exactly.")]
+        public bool surfaceDetail = true;
+
+        [Tooltip("Strength of the regional detail band (broad valleys, secondary ridges, plateaus; 25-200 km at "
+            + "Earth scale). 1 = default. Range [0, 2].")]
+        [Range(0f, MaxSurfaceDetailLevel)]
+        public float regionalDetail = 1f;
+
+        [Tooltip("Strength of the local detail band (hills, ravines, rocky ridges; 1.5-25 km at Earth scale). "
+            + "1 = default. Range [0, 2].")]
+        [Range(0f, MaxSurfaceDetailLevel)]
+        public float localDetail = 1f;
+
+        [Tooltip("Strength of the near-surface detail band (fine undulations and irregularities; 60 m-1.5 km at "
+            + "Earth scale). 1 = default. Range [0, 2].")]
+        [Range(0f, MaxSurfaceDetailLevel)]
+        public float microDetail = 1f;
+
         public PlanetDefinition Clone()
         {
             return (PlanetDefinition)MemberwiseClone();
@@ -144,7 +177,19 @@ namespace Planetwalker.Core
                 && coastalComplexity == other.coastalComplexity
                 && mountainRangeCoverage == other.mountainRangeCoverage
                 && mountainRangeLength == other.mountainRangeLength
-                && mountainRuggedness == other.mountainRuggedness;
+                && mountainRuggedness == other.mountainRuggedness
+                && radiusKilometers == other.radiusKilometers
+                && surfaceDetail == other.surfaceDetail
+                && regionalDetail == other.regionalDetail
+                && localDetail == other.localDetail
+                && microDetail == other.microDetail;
+        }
+
+        /// <summary>True when the surface detail settings (V0.2.0C) are identical.</summary>
+        public bool SurfaceDetailEquals(PlanetDefinition other)
+        {
+            return other != null && surfaceDetail == other.surfaceDetail && regionalDetail == other.regionalDetail
+                && localDetail == other.localDetail && microDetail == other.microDetail && radiusKilometers == other.radiusKilometers;
         }
 
         /// <summary>Clamps every parameter into its documented range.</summary>
@@ -165,6 +210,10 @@ namespace Planetwalker.Core
             mountainRangeCoverage = Mathf.Clamp01(mountainRangeCoverage);
             mountainRangeLength = Mathf.Clamp(mountainRangeLength, MinMountainRangeLength, MaxMountainRangeLength);
             mountainRuggedness = Mathf.Clamp01(mountainRuggedness);
+            radiusKilometers = Mathf.Clamp(radiusKilometers, MinRadiusKilometers, MaxRadiusKilometers);
+            regionalDetail = Mathf.Clamp(regionalDetail, 0f, MaxSurfaceDetailLevel);
+            localDetail = Mathf.Clamp(localDetail, 0f, MaxSurfaceDetailLevel);
+            microDetail = Mathf.Clamp(microDetail, 0f, MaxSurfaceDetailLevel);
         }
     }
 }

@@ -57,6 +57,7 @@ namespace Planetwalker.Terrain
         [SerializeField] int maxWarmupFrames = 120;
 
         PlanetVisualController visual;
+        PlanetRenderFrame renderFrame;
         AdaptiveSurfaceSnapshot snapshot;
         int generation;
         TerrainLodSelector selector;
@@ -188,7 +189,12 @@ namespace Planetwalker.Terrain
             {
                 return;
             }
-            var view = new TerrainLodView(transform.InverseTransformPoint(camera.transform.position), camera.fieldOfView, Mathf.Max(1, camera.pixelHeight))
+            ResolveFrame();
+            // Camera in planet space through the render frame (double; V0.2.0C) when there is one. The frustum stays
+            // in the root's matrix: plane offsets of ~1e-5 units are irrelevant to culling.
+            Vector3 cameraPosition = renderFrame != null ? renderFrame.RenderToPlanet(camera.transform.position).ToVector3()
+                : transform.InverseTransformPoint(camera.transform.position);
+            var view = new TerrainLodView(cameraPosition, camera.fieldOfView, Mathf.Max(1, camera.pixelHeight))
             {
                 Frustum = GeometryUtility.CalculateFrustumPlanes(camera.projectionMatrix * camera.worldToCameraMatrix * transform.localToWorldMatrix),
             };
@@ -203,12 +209,14 @@ namespace Planetwalker.Terrain
             {
                 visual = GetComponent<PlanetVisualController>();
             }
+            ResolveFrame();
             if (!isActiveAndEnabled || visual == null || visual.Planet == null)
             {
                 return;
             }
             frame++;
-            Suspended = visual.DebugView != PlanetDebugView.None;
+            // Scientific views use the legacy faces; the surface detail views (V0.2.0C) are rendered adaptively too.
+            Suspended = visual.DebugView != PlanetDebugView.None && !PlanetDebugViews.IsSurfaceDetail(visual.DebugView);
             if (Suspended)
             {
                 ShowFaces();
@@ -302,15 +310,16 @@ namespace Planetwalker.Terrain
         bool EnsureSnapshot()
         {
             PlanetInstance planet = visual.Planet;
-            NaturalSurface natural = visual.NaturalPlanetShown ? visual.CurrentNaturalSurface : null;
-            if (visual.NaturalPlanetShown && natural == null)
+            PlanetDebugView debugView = PlanetDebugViews.IsSurfaceDetail(visual.DebugView) ? visual.DebugView : PlanetDebugView.None;
+            NaturalSurface natural = debugView == PlanetDebugView.None && visual.NaturalPlanetShown ? visual.CurrentNaturalSurface : null;
+            if (debugView == PlanetDebugView.None && visual.NaturalPlanetShown && natural == null)
             {
                 return false; // the Natural Planet data is not computed yet
             }
             bool linear = QualitySettings.activeColorSpace == ColorSpace.Linear;
             int resolution = Math.Max(2, settings.patchResolution & ~1);
             if (snapshot != null && snapshot.Planet == planet && snapshot.Natural == natural && snapshot.LinearColors == linear
-                && snapshot.Resolution == resolution && snapshot.Ramp.ContentEquals(visual.ColorRamp))
+                && snapshot.Resolution == resolution && snapshot.DebugView == debugView && snapshot.Ramp.ContentEquals(visual.ColorRamp))
             {
                 return true;
             }
@@ -320,7 +329,7 @@ namespace Planetwalker.Terrain
                 Invalidations++;
             }
             generation++;
-            snapshot = new AdaptiveSurfaceSnapshot(generation, planet, natural, visual.ColorRamp, linear, resolution);
+            snapshot = new AdaptiveSurfaceSnapshot(generation, planet, natural, visual.ColorRamp, linear, resolution, debugView);
             isReady ??= id => meshes != null && meshes.TryGet(id, out PatchMeshCache.Entry e) && e.Generation == snapshot.Generation;
             isProtected ??= id => covering.IsLeaf(id) || neededSet.Contains(id);
             priority ??= id => selector.ScreenError(id) + 1e-3f * (PlanetPatchId.MaxLevel - id.Level);
@@ -415,8 +424,21 @@ namespace Planetwalker.Terrain
             TransitionEdges = transitions;
         }
 
-        /// <summary>Object-to-world matrix of a patch (the only place a future floating origin has to change).</summary>
-        public Matrix4x4 PatchMatrix(Vector3 origin) => transform.localToWorldMatrix * Matrix4x4.Translate(origin);
+        /// <summary>
+        /// Object-to-world matrix of a patch: the planet's <see cref="PlanetRenderFrame"/> (floating origin, V0.2.0C;
+        /// translation computed in double) when there is one, else the root matrix.
+        /// </summary>
+        public Matrix4x4 PatchMatrix(Vector3 origin) =>
+            renderFrame != null ? renderFrame.PatchMatrix(origin) : transform.localToWorldMatrix * Matrix4x4.Translate(origin);
+
+        /// <summary>The planet's render frame, cached once per tick (it may appear after this component).</summary>
+        void ResolveFrame()
+        {
+            if (renderFrame == null)
+            {
+                renderFrame = GetComponent<PlanetRenderFrame>();
+            }
+        }
 
         /// <summary>Submits the displayed patches for one camera (null: every camera, like the face renderers).</summary>
         public void Draw(Camera camera)
@@ -436,7 +458,7 @@ namespace Planetwalker.Terrain
             }
             block ??= new MaterialPropertyBlock();
             visual.WriteAdaptiveTerrainProperties(block);
-            var renderParams = new RenderParams(visual.TerrainMaterial)
+            var renderParams = new RenderParams(snapshot.DebugView == PlanetDebugView.None ? visual.TerrainMaterial : visual.DebugMaterial)
             {
                 camera = camera,
                 matProps = block,

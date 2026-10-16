@@ -407,11 +407,13 @@ namespace Planetwalker.Terrain
                 return;
             }
             IReadOnlyList<PlanetPatchId> patches = PreviewComplete ? displayed : selector.Current.Leaves;
+            // Same draw matrix as the adaptive renderer: the render frame (floating origin, V0.2.0C) when there is one.
+            PlanetRenderFrame frame = GetComponent<PlanetRenderFrame>();
             foreach (PlanetPatchId id in patches)
             {
                 if (meshes.TryGet(id, out PatchMeshCache.Entry entry))
                 {
-                    Matrix4x4 matrix = localToWorld * Matrix4x4.Translate(entry.Geometry.Origin);
+                    Matrix4x4 matrix = frame != null ? frame.PatchMatrix(entry.Geometry.Origin) : localToWorld * Matrix4x4.Translate(entry.Geometry.Origin);
                     Graphics.RenderMesh(renderParams, entry.Mesh, 0, matrix);
                     if (showVertexGrid)
                     {

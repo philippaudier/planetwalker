@@ -16,11 +16,9 @@ namespace Planetwalker.Terrain
     /// </summary>
     public sealed class AdaptiveSurfaceSnapshot
     {
-        /// <summary>Normal sample spacing: a quarter face / this, the same at every level (seamless lighting).</summary>
-        public const int DefaultNormalSampleResolution = 256;
 
         public AdaptiveSurfaceSnapshot(int generation, PlanetInstance planet, NaturalSurface natural, PlanetColorRamp ramp, bool linearColors,
-            int resolution, int normalSampleResolution = DefaultNormalSampleResolution)
+            int resolution, PlanetDebugView debugView = PlanetDebugView.None)
         {
             if ((resolution & 1) != 0 || resolution < 2)
             {
@@ -32,9 +30,9 @@ namespace Planetwalker.Terrain
             Natural = natural;
             Ramp = (ramp ?? PlanetColorRamp.CreateDefault()).Clone();
             LinearColors = linearColors;
+            DebugView = debugView;
             Resolution = resolution;
             Topology = PatchTopology.For(resolution);
-            NormalSampleAngle = Mathf.PI * 0.5f / Mathf.Max(1, normalSampleResolution);
         }
 
         public int Generation { get; }
@@ -44,15 +42,20 @@ namespace Planetwalker.Terrain
         public NaturalSurface Natural { get; }
         public PlanetColorRamp Ramp { get; }
         public bool LinearColors { get; }
+        /// <summary>None, or a surface detail debug view (V0.2.0C) coloring the patches by detail layer.</summary>
+        public PlanetDebugView DebugView { get; }
         public int Resolution { get; }
         public PatchTopology Topology { get; }
 
         /// <summary>
-        /// Angular spacing of the finite-difference normals. Independent of the patch level, so a vertex shared by
-        /// two levels gets the same normal on both sides (no lighting seam); finer than any feature of the current
-        /// elevation field (about R / 30), so refinement never loses relief shading.
+        /// Angular spacing of the finite-difference normals of a level: the level's own vertex spacing, like the
+        /// legacy faces (V0.2.0C). The samples are band-limited to it, so the normal is that of the relief the
+        /// patch resolves: no aliasing grain at coarse levels, every detail octave shaded once it is resolved.
+        /// Vertices shared by two levels get normals of two adjacent band limits, which differ by the one octave
+        /// between them (a bounded, sub-threshold lighting difference; V0.2.0B's fixed spacing would hide every
+        /// detail octave finer than R / 160).
         /// </summary>
-        public float NormalSampleAngle { get; }
+        public float NormalAngle(int level) => Mathf.PI * 0.5f / ((float)Resolution * (1 << level));
 
         /// <summary>Vertex spacing of a level (rendering units, face-center value).</summary>
         public float Spacing(int level) => Sampler.Radius * Mathf.PI * 0.5f / ((float)Resolution * (1 << level));
@@ -94,8 +97,8 @@ namespace Planetwalker.Terrain
     {
         readonly float[] scores = new float[Biomes.Count];
         readonly float[] pointScores = new float[Biomes.Count];
-        Vector3[] planetPositions = Array.Empty<Vector3>();
-        Vector3[] directions = Array.Empty<Vector3>();
+        Vector3d[] planetPositions = Array.Empty<Vector3d>();
+        Vector3d[] directions = Array.Empty<Vector3d>();
 
         public void Build(AdaptiveSurfaceSnapshot snapshot, PlanetPatchId id, PatchGeometryData target)
         {
@@ -113,16 +116,20 @@ namespace Planetwalker.Terrain
             int gridCount = topology.GridVertexCount;
             if (directions.Length != gridCount)
             {
-                directions = new Vector3[gridCount];
-                planetPositions = new Vector3[gridCount];
+                directions = new Vector3d[gridCount];
+                planetPositions = new Vector3d[gridCount];
             }
             TerrainElevationSampler sampler = snapshot.Sampler;
             PlanetHeightGenerator height = snapshot.Planet.Height;
             float seaLevel = snapshot.Planet.SeaLevel;
             int lattice = r << id.Level;
             int i0 = id.X * r, j0 = id.Y * r;
-            Vector3 origin = CubeSphereCoordinates.CenterDirection(id) * sampler.Radius;
-            double ox = origin.x, oy = origin.y, oz = origin.z;
+            double radius = sampler.Radius;
+            // Positions in double (V0.2.0C): exact lattice direction x radius, relative to the float-rounded patch
+            // origin the draw matrix will use, rounded to float once. Sub-meter precision at any depth.
+            Vector3 origin = (CubeSphereCoordinates.CenterDirectionD(id) * radius).ToVector3();
+            var originD = new Vector3d(origin);
+            float normalAngle = snapshot.NormalAngle(id.Level);
             float minE = float.MaxValue, maxE = float.MinValue;
             var min = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
             Vector3 max = -min;
@@ -132,14 +139,17 @@ namespace Planetwalker.Terrain
                 for (int i = 0; i <= r; i++)
                 {
                     int v = i + j * edge;
-                    Vector3 direction = CubeSphereCoordinates.LatticeDirection(id.Face, i0 + i, j0 + j, lattice);
-                    float elevation = sampler.Elevation(direction);
-                    Vector3 position = sampler.SurfacePoint(direction, elevation);
-                    Vector3 normal = height.GetSurfaceNormal(direction, elevation, snapshot.NormalSampleAngle);
-                    Color color = PlanetMeshBuilder.TerrainColor(snapshot.Natural, snapshot.Ramp, seaLevel, direction, elevation, normal, scores, pointScores);
-                    directions[v] = direction;
+                    Vector3d precise = CubeSphereCoordinates.LatticeDirectionD(id.Face, i0 + i, j0 + j, lattice);
+                    Vector3 direction = precise.ToVector3();
+                    float elevation = height.GetElevation(precise);
+                    Vector3d position = precise * (radius * (1.0 + elevation));
+                    Vector3 normal = height.GetSurfaceNormal(precise, normalAngle);
+                    Color color = snapshot.DebugView == PlanetDebugView.None
+                        ? PlanetMeshBuilder.TerrainColor(snapshot.Natural, snapshot.Ramp, seaLevel, direction, elevation, normal, scores, pointScores)
+                        : SurfaceDetailDebugColors.Evaluate(height, snapshot.DebugView, direction, elevation - seaLevel > 0f);
+                    directions[v] = precise;
                     planetPositions[v] = position;
-                    Vector3 local = Relative(position, ox, oy, oz);
+                    Vector3 local = (position - originD).ToVector3();
                     target.Vertices[v] = local;
                     target.Normals[v] = normal;
                     target.Colors[v] = snapshot.LinearColors ? ToLinear(color) : color;
@@ -157,7 +167,7 @@ namespace Planetwalker.Terrain
                     PatchNeighbors.EdgeVertex((PatchDirection)d, k, r, out int i, out int j);
                     int g = i + j * edge;
                     int s = topology.SkirtIndex((PatchDirection)d, k);
-                    Vector3 local = Relative(planetPositions[g] - directions[g] * skirt, ox, oy, oz);
+                    Vector3 local = (planetPositions[g] - directions[g] * skirt - originD).ToVector3();
                     target.Vertices[s] = local;
                     target.Normals[s] = target.Normals[g];
                     target.Colors[s] = target.Colors[g];
@@ -174,11 +184,6 @@ namespace Planetwalker.Terrain
             target.MinElevation = minE;
             target.MaxElevation = maxE;
             target.BuildMilliseconds = (Stopwatch.GetTimestamp() - start) * 1000.0 / Stopwatch.Frequency;
-        }
-
-        static Vector3 Relative(Vector3 p, double ox, double oy, double oz)
-        {
-            return new Vector3((float)(p.x - ox), (float)(p.y - oy), (float)(p.z - oz));
         }
 
         /// <summary>sRGB to linear (the standard curve; managed, unlike Color.linear, so usable off the main thread).</summary>

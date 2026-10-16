@@ -601,5 +601,127 @@ namespace Planetwalker.Tests
             CollectionAssert.AreEqual(new[] { "World 4", "World 3", "World 2", "World 1", "World 0" }, entries.Select(e => e.DisplayName));
             Assert.IsTrue(entries.All(e => e.FileBytes > 1000 && e.FileBytes < 20000));
         }
+
+        // ------------------------------------------------------------ T, U (V0.2.0C: physical scale and surface detail)
+
+        static readonly string[] SurfaceDetailFields = { "surfaceDetail", "radiusKilometers", "regionalDetail", "localDetail", "microDetail" };
+
+        // T1
+        [Test]
+        public void T_ArchivesBeforeV020C_LoadExactly_WithSurfaceDetailOff_AndNoWarning()
+        {
+            // The V0.1.3A fixture has no terrain.surfaceDetail: an older world never silently gains detail. With it
+            // off the terrain is what V0.1.3A generated, so reconstruction is exact and nothing is worth a warning.
+            ArchiveReadResult read = PlanetArchiveSerializer.Read(WorldArchiveTestUtil.V013AArchiveJson);
+            Assert.IsTrue(read.Ok, read.Report.Summary());
+            Assert.AreEqual(GeneratorCompatibility.Exact, read.Compatibility);
+            Assert.IsEmpty(read.Report.Warnings, "A compatibility default is a documented rule, not a warning");
+            PlanetDefinition terrain = read.Archive.Configuration.Terrain;
+            Assert.IsFalse(terrain.surfaceDetail, "Archives written before V0.2.0C load with surface detail off");
+            Assert.IsTrue(new PlanetDefinition().surfaceDetail, "...even though new worlds start detailed");
+            Assert.AreEqual(6371f, terrain.radiusKilometers, "Physical radius: the documented default (Earth)");
+            Assert.AreEqual(1f, terrain.regionalDetail);
+            Assert.AreEqual(1f, terrain.localDetail);
+            Assert.AreEqual(1f, terrain.microDetail);
+            CollectionAssert.IsSupersetOf(read.Report.DefaultedFields, SurfaceDetailFields.Select(f => "terrain." + f),
+                "The absent V0.2.0C fields are reported as defaulted, never silent");
+
+            // The same rule stands alone and is keyed on the defaulted entry only.
+            var fresh = new WorldConfiguration();
+            var report = new ArchiveReport();
+            PlanetArchiveSerializer.ApplyCompatibilityDefaults(fresh, report);
+            Assert.IsTrue(fresh.Terrain.surfaceDetail, "Nothing defaulted: nothing changes");
+            report.Defaulted("terrain.surfaceDetail");
+            PlanetArchiveSerializer.ApplyCompatibilityDefaults(fresh, report);
+            Assert.IsFalse(fresh.Terrain.surfaceDetail);
+            Assert.IsEmpty(report.Warnings);
+        }
+
+        // T2
+        [Test]
+        public void T_SurfaceDetail_IsHonoredWhenPresent_WhateverItsValue()
+        {
+            foreach (bool detail in new[] { true, false })
+            {
+                PlanetArchive archive = WorldArchiveTestUtil.NewArchive("Detail " + detail);
+                archive.Configuration.Terrain.surfaceDetail = detail;
+                string json = PlanetArchiveSerializer.Serialize(archive);
+                ArchiveReadResult read = PlanetArchiveSerializer.Read(json);
+                Assert.IsTrue(read.Ok, read.Report.Summary());
+                Assert.AreEqual(detail, read.Archive.Configuration.Terrain.surfaceDetail, "Present: honored, " + detail);
+                Assert.IsEmpty(read.Report.DefaultedFields);
+                Assert.IsEmpty(read.Report.Warnings);
+
+                // Presence is what counts, not the generator version: an older label with the field present keeps it.
+                ArchiveReadResult relabelled = PlanetArchiveSerializer.Read(ReplaceMember(json, "generatorVersion", "\"Genesis V0.1.3B\""));
+                Assert.IsTrue(relabelled.Ok, relabelled.Report.Summary());
+                Assert.AreEqual(detail, relabelled.Archive.Configuration.Terrain.surfaceDetail);
+            }
+
+            // Removing only the flag from a current archive applies the rule; the other detail fields stay as written.
+            ArchiveReadResult removed = ReadModified(j => WithoutMember(j, "terrain", "surfaceDetail"));
+            Assert.IsTrue(removed.Ok, removed.Report.Summary());
+            Assert.IsFalse(removed.Archive.Configuration.Terrain.surfaceDetail);
+            Assert.AreEqual(3390f, removed.Archive.Configuration.Terrain.radiusKilometers);
+            Assert.AreEqual(1.4f, removed.Archive.Configuration.Terrain.regionalDetail);
+            CollectionAssert.Contains(removed.Report.DefaultedFields, "terrain.surfaceDetail");
+            Assert.IsEmpty(removed.Report.Warnings);
+        }
+
+        // T3
+        [Test]
+        public void T_GeneratorVersions_V013A_V013B_AndCurrent_AreExact_OlderStayBestEffort()
+        {
+            Assert.AreEqual("Genesis V0.2.0C", PlanetArchive.CurrentGeneratorVersion);
+            foreach (string exact in new[] { "Genesis V0.1.3A", "Genesis V0.1.3B", PlanetArchive.CurrentGeneratorVersion })
+            {
+                ArchiveReadResult read = ReadModified(j => ReplaceMember(j, "generatorVersion", "\"" + exact + "\""));
+                Assert.IsTrue(read.Ok, read.Report.Summary());
+                Assert.AreEqual(GeneratorCompatibility.Exact, read.Compatibility, exact);
+                Assert.IsEmpty(read.Report.Warnings, exact);
+                Assert.AreEqual(GeneratorCompatibility.Exact, PlanetArchiveSerializer.CompatibilityOf(exact));
+            }
+            foreach (string older in new[] { "Genesis V0.1.2D", "Genesis V0.2.0A", "Genesis V0.2.0B" })
+            {
+                ArchiveReadResult read = ReadModified(j => ReplaceMember(j, "generatorVersion", "\"" + older + "\""));
+                Assert.IsTrue(read.Ok, read.Report.Summary());
+                Assert.AreEqual(GeneratorCompatibility.BestEffort, read.Compatibility, older);
+                Assert.IsTrue(read.Report.Warnings.Any(w => w.Contains("best-effort")), older);
+            }
+        }
+
+        // U
+        [Test]
+        public void U_SurfaceDetailSettings_SurviveSaveAndLoad_InDeclarationOrder()
+        {
+            PlanetArchive archive = WorldArchiveTestUtil.NewArchive("Detailed", WorldArchiveTestUtil.Tweaked(flipFlags: false));
+            PlanetDefinition t = archive.Configuration.Terrain;
+            Assert.IsTrue(t.surfaceDetail && t.radiusKilometers == 3390f && t.regionalDetail == 1.4f && t.localDetail == 0.6f && t.microDetail == 1.8f,
+                "Tweaked() sets every V0.2.0C field to a non-default value");
+            Assert.IsTrue(store.Save(archive).Success);
+            ArchiveOperationResult loaded = store.Load(archive.PlanetId);
+            Assert.IsTrue(loaded.Success, loaded.Error);
+            Assert.AreEqual(GeneratorCompatibility.Exact, loaded.Read.Compatibility);
+            Assert.AreEqual(GeneratorCompatibility.Exact, store.List().Single().Compatibility);
+            WorldArchiveTestUtil.AssertSameConfiguration(archive.Configuration, loaded.Archive.Configuration);
+            Assert.IsTrue(t.SurfaceDetailEquals(loaded.Archive.Configuration.Terrain));
+            string json = File.ReadAllText(FileOf(archive), new UTF8Encoding(false, true));
+            Assert.AreEqual(json, PlanetArchiveSerializer.Serialize(loaded.Archive), "Stable text after a reload");
+
+            // The new members sit in the terrain group, in declaration order, after the V0.1.3A fields.
+            JsonValue terrain = Root(json).Find("terrain");
+            List<string> members = terrain.Members.Select(m => m.Key).ToList();
+            Assert.AreEqual(JsonKind.Bool, terrain.Find("surfaceDetail").Kind);
+            Assert.IsTrue(terrain.Find("surfaceDetail").Bool);
+            Assert.AreEqual("3390", terrain.Find("radiusKilometers").Text);
+            Assert.AreEqual("1.4", terrain.Find("regionalDetail").Text);
+            Assert.AreEqual("0.6", terrain.Find("localDetail").Text);
+            Assert.AreEqual("1.8", terrain.Find("microDetail").Text);
+            int ruggedness = members.IndexOf("mountainRuggedness");
+            Assert.GreaterOrEqual(ruggedness, 0);
+            CollectionAssert.AreEqual(new[] { "radiusKilometers", "surfaceDetail", "regionalDetail", "localDetail", "microDetail" },
+                members.Skip(ruggedness + 1), "Declaration order of the V0.2.0C fields");
+            WorldArchiveTestUtil.Report(terrain.ToJson());
+        }
     }
 }

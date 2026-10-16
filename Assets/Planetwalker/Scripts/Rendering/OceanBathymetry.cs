@@ -196,7 +196,8 @@ namespace Planetwalker.Rendering
             if (field == null || !SameElevationField(fieldTerrain, planet.Definition))
             {
                 grid ??= new HydrologyGrid(BathymetryField.Resolution);
-                field = new BathymetryField(grid, planet.Height.GetElevation);
+                float spacing = Mathf.PI * 0.5f / grid.Resolution; // band-limited to the grid and the legacy world (V0.2.0C)
+                field = new BathymetryField(grid, d => planet.GetLegacyElevation(d, spacing));
                 fieldTerrain = planet.Definition.Clone();
                 FieldComputeCount++;
                 layer = null;
