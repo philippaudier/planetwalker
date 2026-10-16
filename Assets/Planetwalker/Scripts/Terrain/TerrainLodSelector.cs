@@ -166,7 +166,13 @@ namespace Planetwalker.Terrain
     /// e = min(relief, slope * s) + s^2 / (8 R): terrain displacement between vertices (at most the assumed
     /// steepest slope times the spacing, never more than the planet's whole relief range) plus the sphere's own
     /// curvature sagitta. The projected error is e * K / d, with K = viewport height / (2 tan(fov / 2)) and d the
-    /// distance from the camera to the patch's bounding sphere (which contains its whole relief). Patches entirely
+    /// distance from the camera to the patch's bounding sphere. That sphere contains the patch's own relief
+    /// (V0.2.0C fix): radial bounds sampled on a 3 x 3 grid of the patch, widened by what the samples can miss
+    /// (the error bound at the sample spacing), clamped to the planet's range. With the planet-wide range instead
+    /// (+-370 km on an exaggerated Earth-scale planet), every patch within a few hundred kilometers contained the
+    /// camera once it flew below the highest possible summit: their distances all clamped to zero, their errors
+    /// saturated to the same value, and the budget spread evenly over that whole disk instead of under the camera
+    /// (zooming in lost the finest levels). Patches entirely
     /// beyond the horizon (also accounting for the highest possible terrain) have no visible error and are never
     /// refined: no wasted budget behind the planet or at the horizon. No frustum culling: when the view carries a
     /// frustum (V0.2.0B), patches entirely outside it only have their error scaled by
@@ -212,10 +218,26 @@ namespace Planetwalker.Terrain
         int maxLevel;
         Plane[] frustum;
 
-        // Camera-independent patch spheres (center direction, angular radius): the costly part of an error
-        // estimate, cached. Bounded: cleared when it outgrows the limit (identical values are recomputed).
+        // Camera-independent patch bounds (center direction, angular radius, radial relief range): the costly part
+        // of an error estimate, cached per planet (sampler). Bounded: cleared when it outgrows the limit (identical
+        // values are recomputed).
         const int SphereCacheLimit = 32768;
-        readonly Dictionary<ulong, Vector4> sphereCache = new Dictionary<ulong, Vector4>(4096);
+        /// <summary>Samples per patch edge of the relief bounds (3 x 3 grid: corners, edge midpoints, center).</summary>
+        public const int BoundSamples = 3;
+
+        struct PatchBound
+        {
+            public Vector3 Direction;
+            public float AngularRadius;
+            public float LowRadius;
+            public float HighRadius;
+        }
+
+        readonly Dictionary<ulong, PatchBound> sphereCache = new Dictionary<ulong, PatchBound>(4096);
+        TerrainElevationSampler boundsSampler;
+
+        /// <summary>Number of patch relief bounds computed (sampled) since creation (diagnostics, tests).</summary>
+        public int BoundComputeCount { get; private set; }
 
         public TerrainLodSelector(AdaptiveTerrainSettings settings)
         {
@@ -266,6 +288,11 @@ namespace Planetwalker.Terrain
             long start = Stopwatch.GetTimestamp(); // (a Stopwatch instance would allocate)
             sampler = planet ?? throw new ArgumentNullException(nameof(planet));
             settings = Settings;
+            if (sampler != boundsSampler)
+            {
+                sphereCache.Clear(); // relief bounds belong to one planet
+                boundsSampler = sampler;
+            }
             int minLevel = settings.EffectiveMinLevel;
             maxLevel = settings.EffectiveMaxLevel;
             for (int level = 0; level <= maxLevel; level++)
@@ -377,18 +404,9 @@ namespace Planetwalker.Terrain
         /// <summary>Projected error in pixels of a patch for the current camera (0 when entirely beyond the horizon).</summary>
         public float ScreenError(PlanetPatchId id)
         {
-            if (!sphereCache.TryGetValue(id.Key, out Vector4 sphere))
-            {
-                if (sphereCache.Count >= SphereCacheLimit)
-                {
-                    sphereCache.Clear();
-                }
-                Vector3 direction = CubeSphereCoordinates.CenterDirection(id);
-                sphere = new Vector4(direction.x, direction.y, direction.z, CubeSphereCoordinates.AngularRadius(id));
-                sphereCache.Add(id.Key, sphere);
-            }
-            var center = new Vector3(sphere.x, sphere.y, sphere.z);
-            float angularRadius = sphere.w;
+            PatchBound bound = Bound(id);
+            Vector3 center = bound.Direction;
+            float angularRadius = bound.AngularRadius;
             if (!cameraInsideRelief)
             {
                 float cosToCamera = Vector3.Dot(center, cameraDirection);
@@ -399,10 +417,10 @@ namespace Planetwalker.Terrain
                     return 0f;
                 }
             }
-            float midRadius = 0.5f * (sampler.MinRadius + sampler.MaxRadius);
+            float rMin = bound.LowRadius, rMax = bound.HighRadius;
+            float midRadius = 0.5f * (rMin + rMax);
             Vector3 c = center * midRadius;
             float cosA = Mathf.Cos(angularRadius);
-            float rMin = sampler.MinRadius, rMax = sampler.MaxRadius;
             // Farthest patch point from c: a boundary direction at the low or high radius.
             float boundSq = Mathf.Max(rMin * rMin + midRadius * midRadius - 2f * rMin * midRadius * cosA,
                 rMax * rMax + midRadius * midRadius - 2f * rMax * midRadius * cosA);
@@ -420,6 +438,74 @@ namespace Planetwalker.Terrain
                 }
             }
             return error;
+        }
+
+        /// <summary>Radial relief range of a patch (rendering units), for the current planet: see the remarks.</summary>
+        public Vector2 ReliefBounds(PlanetPatchId id)
+        {
+            PatchBound b = Bound(id);
+            return new Vector2(b.LowRadius, b.HighRadius);
+        }
+
+        PatchBound Bound(PlanetPatchId id)
+        {
+            if (sphereCache.TryGetValue(id.Key, out PatchBound bound))
+            {
+                return bound;
+            }
+            if (sphereCache.Count >= SphereCacheLimit)
+            {
+                sphereCache.Clear();
+            }
+            bound.Direction = CubeSphereCoordinates.CenterDirection(id);
+            bound.AngularRadius = CubeSphereCoordinates.AngularRadius(id);
+            // Sampled elevations, band-limited to the sample spacing (octaves the grid cannot resolve are covered by
+            // the margin below, not aliased into the samples).
+            CubeSphereCoordinates.FaceBounds(id, out float aMin, out float bMin, out float aMax, out float bMax);
+            float patchAngle = Mathf.PI * 0.5f / (1 << id.Level);
+            float sampleAngle = patchAngle / (BoundSamples - 1);
+            float low = float.MaxValue, high = float.MinValue;
+            for (int j = 0; j < BoundSamples; j++)
+            {
+                for (int i = 0; i < BoundSamples; i++)
+                {
+                    float a = Mathf.Lerp(aMin, aMax, i / (BoundSamples - 1f)), b = Mathf.Lerp(bMin, bMax, j / (BoundSamples - 1f));
+                    float e = sampler.Planet.Height.GetElevation(CubeSphereCoordinates.FaceToDirection(id.Face, a, b), sampleAngle);
+                    low = Mathf.Min(low, e);
+                    high = Mathf.Max(high, e);
+                }
+            }
+            // What the samples can miss between them: the error bound at the sample spacing (half of it on either side
+            // is enough for a point between two samples; the full bound keeps a safety factor). Sea level is included:
+            // the ocean surface is part of what the patch draws over.
+            float margin = ErrorAtSpacing(sampler, settings, sampleAngle) / sampler.Radius;
+            float seaLevel = sampler.Planet.SeaLevel;
+            low = Mathf.Min(low, seaLevel) - margin;
+            high = Mathf.Max(high, seaLevel) + margin;
+            bound.LowRadius = Mathf.Max(sampler.MinRadius, sampler.Radius * (1f + low));
+            bound.HighRadius = Mathf.Min(sampler.MaxRadius, sampler.Radius * (1f + high));
+            if (bound.HighRadius < bound.LowRadius)
+            {
+                bound.HighRadius = bound.LowRadius;
+            }
+            sphereCache.Add(id.Key, bound);
+            BoundComputeCount++;
+            return bound;
+        }
+
+        /// <summary>Displacement bound between samples at an angular spacing (same model as <see cref="GeometricError"/>).</summary>
+        static float ErrorAtSpacing(TerrainElevationSampler planet, AdaptiveTerrainSettings settings, float angle)
+        {
+            float spacing = 1.25f * planet.Radius * angle;
+            float slope = settings.assumedMaxSlope;
+            float unresolved = 0f;
+            TerrainDetailProfile detail = planet.Planet.Height.SurfaceDetail?.Profile;
+            if (detail != null)
+            {
+                slope += detail.TypicalSlope(angle);
+                unresolved = detail.UnresolvedAmplitude(angle) * planet.Radius;
+            }
+            return Mathf.Min(planet.MaxRadius - planet.MinRadius, slope * spacing + unresolved);
         }
 
         void Consider(PlanetPatchId id, ref bool depthLimited)
