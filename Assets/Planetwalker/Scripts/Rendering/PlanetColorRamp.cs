@@ -40,6 +40,33 @@ namespace Planetwalker.Rendering
 
         [Range(0f, 1f)] public float rockStrength = 0.75f;
 
+        /// <summary>Deep copy (an immutable snapshot for worker threads, V0.2.0B).</summary>
+        public PlanetColorRamp Clone()
+        {
+            var copy = (PlanetColorRamp)MemberwiseClone();
+            copy.stops = stops != null ? (Stop[])stops.Clone() : null;
+            return copy;
+        }
+
+        /// <summary>True when both ramps produce the same colors.</summary>
+        public bool ContentEquals(PlanetColorRamp other)
+        {
+            if (other == null || rockColor != other.rockColor || rockSteepnessStart != other.rockSteepnessStart
+                || rockSteepnessEnd != other.rockSteepnessEnd || rockStrength != other.rockStrength
+                || (stops == null) != (other.stops == null) || (stops != null && stops.Length != other.stops.Length))
+            {
+                return false;
+            }
+            for (int i = 0; stops != null && i < stops.Length; i++)
+            {
+                if (stops[i].elevation != other.stops[i].elevation || stops[i].color != other.stops[i].color)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         public static PlanetColorRamp CreateDefault()
         {
             return new PlanetColorRamp

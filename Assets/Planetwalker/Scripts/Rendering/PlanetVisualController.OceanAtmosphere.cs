@@ -202,6 +202,28 @@ namespace Planetwalker.Rendering
             OceanAtmosphereApplyCount++;
         }
 
+        static readonly int PlanetFromWorldId = Shader.PropertyToID("_PlanetFromWorld");
+        static readonly int AdaptivePatchId = Shader.PropertyToID("_AdaptivePatch");
+
+        /// <summary>
+        /// Writes the default view's terrain properties (terminator wrap, haze, clouds and their current time, night
+        /// and twilight) to the adaptive terrain's property block (V0.2.0B): the same writers as for the six face
+        /// renderers, plus the planet frame its patch-relative vertices need. Called each frame before drawing.
+        /// </summary>
+        internal void WriteAdaptiveTerrainProperties(MaterialPropertyBlock block)
+        {
+            block.SetFloat(LightWrapId, oceanAtmosphere.LightWrap);
+            SetHaze(block);
+            WriteCloudUniforms(block, 1f, cloudThreshold);
+            WriteSolarShading(block);
+            if (terrainProperties != null)
+            {
+                block.SetVector(CloudParams3Id, terrainProperties.GetVector(CloudParams3Id)); // cloud time
+            }
+            block.SetMatrix(PlanetFromWorldId, transform.worldToLocalMatrix);
+            block.SetFloat(AdaptivePatchId, 1f);
+        }
+
         /// <summary>
         /// Haze between the camera and the terrain / ocean (same model and parameters as the shell, read
         /// from the atmosphere material): world-space sphere center and radii. Strength 0 when the

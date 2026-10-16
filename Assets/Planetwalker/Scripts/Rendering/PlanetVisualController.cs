@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Planetwalker.Core;
 using Planetwalker.Generation;
 using UnityEngine;
@@ -79,6 +80,8 @@ namespace Planetwalker.Rendering
         Material ownedTerrainMaterial;
         Material ownedOceanMaterial;
         Material ownedDebugMaterial;
+        readonly HashSet<object> terrainFaceHiders = new HashSet<object>();
+        bool terrainFacesForced;
         PlanetDebugView renderedDebugView;
         float renderedRiverThreshold;
         int renderedHydrologyResolution;
@@ -178,6 +181,54 @@ namespace Planetwalker.Rendering
         }
 
         public PlanetColorRamp ColorRamp => colorRamp;
+
+        /// <summary>
+        /// False while another terrain representation (adaptive terrain, V0.2.0A preview / V0.2.0B renderer) replaces
+        /// the six face meshes on screen. The face meshes are kept and stay up to date; only their renderers are off.
+        /// </summary>
+        public bool TerrainFacesVisible => terrainFaceHiders.Count == 0 || terrainFacesForced;
+
+        /// <summary>
+        /// Hides the six terrain face renderers on behalf of <paramref name="owner"/> (or withdraws that request).
+        /// They are visible again once no owner hides them: several owners never fight over the flag.
+        /// </summary>
+        public void SetTerrainFacesHidden(object owner, bool hidden)
+        {
+            if (hidden)
+            {
+                terrainFaceHiders.Add(owner);
+            }
+            else
+            {
+                terrainFaceHiders.Remove(owner);
+            }
+            ApplyTerrainFaceVisibility();
+        }
+
+        /// <summary>Shows the faces whoever hides them (a synchronous capture, e.g. thumbnails), until called with false.</summary>
+        public void ForceTerrainFacesVisible(bool forced)
+        {
+            terrainFacesForced = forced;
+            ApplyTerrainFaceVisibility();
+        }
+
+        void ApplyTerrainFaceVisibility()
+        {
+            bool visible = TerrainFacesVisible;
+            foreach (MeshRenderer faceRenderer in faceRenderers)
+            {
+                if (faceRenderer != null)
+                {
+                    faceRenderer.enabled = visible;
+                }
+            }
+        }
+
+        /// <summary>The unlit vertex-color material of the development views (shared, owned by this controller).</summary>
+        internal Material DebugMaterial => ResolveDebugMaterial();
+
+        /// <summary>The terrain material of the default view (shared with the adaptive terrain, V0.2.0B).</summary>
+        internal Material TerrainMaterial => ResolveTerrainMaterial();
 
         public PlanetDebugView DebugView
         {
@@ -895,6 +946,7 @@ namespace Planetwalker.Rendering
                     faceMeshes[face] = new Mesh { hideFlags = HideFlags.DontSave };
                     faceFilters[face] = CreateChild("Terrain " + CubeSphereGenerator.GetFaceName(face), faceMeshes[face], terrain);
                     faceRenderers[face] = faceFilters[face].GetComponent<MeshRenderer>();
+                    faceRenderers[face].enabled = TerrainFacesVisible;
                 }
             }
 

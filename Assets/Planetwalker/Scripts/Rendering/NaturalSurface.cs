@@ -199,6 +199,16 @@ namespace Planetwalker.Rendering
         /// <summary>Natural color (sRGB) of a land point: unit direction and elevation (fraction of the radius).</summary>
         public Color Evaluate(Vector3 direction, float elevation)
         {
+            return Evaluate(direction, elevation, scores, pointScores);
+        }
+
+        /// <summary>
+        /// Same as <see cref="Evaluate(Vector3, float)"/> with caller-owned scratch buffers (<see cref="Biomes.Count"/>
+        /// floats each): safe to call from several threads at once (V0.2.0B adaptive terrain workers). Everything
+        /// else it reads is immutable.
+        /// </summary>
+        public Color Evaluate(Vector3 direction, float elevation, float[] scores, float[] pointScores)
+        {
             ClimateResult climate = BiomeData.Climate;
             float landWeight = BiomeData.SampleScores(direction, scores);
             if (landWeight < FallbackWeight)

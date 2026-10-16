@@ -1,4 +1,4 @@
-# Planetwalker — Genesis V0.1.3B (World Library)
+# Planetwalker — Genesis V0.2.0B (Seamless Adaptive Planet Terrain)
 
 ## Launch
 
@@ -183,6 +183,155 @@ metadata with a warning. An invalid metadata block is dropped with a warning; th
 decoded lazily for the visible page (3 per frame) into a bounded cache (36 textures) that is released when the
 library closes. No per-frame disk access, JSON parsing or decoding; idle display allocates nothing.
 
+## Adaptive Terrain Foundation (V0.2.0A)
+
+Foundation for exploring every point of a planet: a quadtree of patches over the six cube faces, sampling the
+existing elevation field. **Not** an explorable planet yet: the existing planet rendering stays the default and
+unchanged; the adaptive terrain is only visible in the opt-in **ADAPTIVE TERRAIN DEBUG** section of the panel.
+
+**Patch identity** (`Terrain/PlanetPatchId`): face (the existing numbering +Y, -Y, -X, +X, +Z, -Z), level, integer
+x, y — packed into one 64-bit key (face 3 bits | level 5 | x 24 | y 24): no floating point, no GUID, no collisions,
+splitmix64 hash. At level L a face is a 2^L x 2^L grid; x grows along the face's A axis ("east"), y along B ("north");
+(0, 0) is the south-west corner (face coordinates (-1, -1)). Children: 0 = SW, 1 = SE, 2 = NW, 3 = NE. Levels 0-24
+are addressable; geometry is exact down to level `MaxLevelForResolution(r)` (20 for 16 quads per patch).
+
+**Coordinates** (`Terrain/CubeSphereCoordinates`): the existing projection only (`CubeSphereGenerator.GetFaceAxes`,
+`CubeToSphere`, `GridCoordinate`). Every adaptive vertex lies on an integer face lattice of r 2^L cells and is
+computed with the planet mesh's own formula, so shared vertices (same level, across levels at even positions, across
+face edges) are bit-identical, and at lattice = mesh resolution the adaptive vertices equal the planet mesh vertices
+bit for bit. The inverse (direction to face coordinates) runs Newton iterations in double on the same mapping
+(round trip < 1e-6 on the unit sphere).
+
+**Neighbors** (`Terrain/PatchNeighbors`): equal-level edge neighbors with integer arithmetic on the cube — the
+neighbor center is stepped across the edge and folded onto the adjacent face, whose axes give its address; no
+hand-written orientation table, so rotations / mirrorings between faces follow from the face frames. Reciprocal,
+exactly one shared edge each, three patches per cube corner (pairwise adjacent), corner contact never counted as
+adjacency. Cross-level: `NeighborLeaves` returns the coarser leaf, or every finer leaf along the edge (any depth).
+
+**Sampling and meshes** (`Terrain/TerrainElevationSampler`, `Terrain/PatchMeshBuilder`): `Planet.Height.GetElevation`
+unchanged (same units, no added noise, no mesh dependence); surface point = `dir * radius * (1 + elevation)` as the
+planet mesh. A patch is a fixed (r + 1)^2 grid (default r = 16, independent of the depth), the planet faces' triangle
+pattern and outward winding, positions relative to the patch center (precision at depth), reused buffers.
+
+**LOD selection** (`Terrain/TerrainLodSelector`): screen-space error, deterministic, no time or randomness. Error bound
+of a level-L patch: vertex spacing s = 1.25 R (pi/2) / (r 2^L); geometric error e = min(relief, slope x s) + s^2 / 8R
+(terrain displacement between vertices with an assumed steepest slope, 1 = 45 degrees, capped by the planet's relief
+range; plus the sphere's sagitta). Projected error = e x K / d, K = viewport height / (2 tan(fov/2)), d = distance to
+the patch's bounding sphere (whole relief range included). Patches entirely beyond the horizon (accounting for the
+highest terrain) get no error: no refinement behind the planet or past the horizon; no frustum culling (the covering
+does not depend on where the camera looks). The leaf with the largest error (relative to its threshold) is split
+first; each split first splits coarser edge neighbors (2:1 balance). A split that would exceed the leaf budget is not
+made and refinement stops: the covering is always complete, non-overlapping and coarser rather than holed
+(`BudgetLimited` is reported). Hysteresis: a patch split last time stays split while its error exceeds threshold x (1 -
+hysteresis) (default 25%). Steady-state selection allocates nothing.
+
+**Crack contract (V0.2.0B)**: edges at equal level are bit-identical (tolerance 0, tested on every case incl. face
+edges). Coverings are 2:1 balanced, so an edge only ever meets one level coarser: the fine side's even edge vertices
+coincide exactly with the coarse vertices; its odd vertices are T-junctions (`EdgeTransition.Coarser`, measured by
+`PatchCoverage.TJunctionGap`). **V0.2.0A is not crack-free**; the debug overlay draws these edges red. V0.2.0B will
+stitch them (fine-side edge vertices snapped to the coarse edge, or alternate index buffers per transition mask).
+
+**Limits** (`AdaptiveTerrainSettings`, diagnostic and runtime only, never archived): patch resolution 16, levels 0-16
+(capped by exact coordinates), screen error 4 px, hysteresis 25%, leaf budget 512 (provisional), patch meshes 768,
+assumed slope 1. Mesh estimate: (r + 1)^2 x 28 B + 6 r^2 x 2 B = 11 KB per 16-quad patch; 512 patches = 5.4 MB.
+
+**ADAPTIVE TERRAIN DEBUG** (panel; `Terrain/AdaptiveTerrainDebugView`, off by default): *Show Patch LOD* runs the
+selection for the orbital camera. *Overlay* (default) drapes the patch outlines over the existing planet (one line
+mesh; colors by level, white cube-face edges, red LOD transitions). *Mesh Preview* (opt-in) draws the selected patches
+as meshes in level colors with a diagnostic hillshade (lit from the local north-west, independent of the sun) and
+their vertex grid (*Vertex Grid*, shows the triangle density), and hides the six face meshes meanwhile (never two planets); it builds at most 6 ms of
+patches per frame, nearest first, and keeps showing the last complete covering until the new one is built. *Freeze
+LOD* keeps the covering while the camera moves. LOD min / max level, screen error and patch budget sliders apply
+without regeneration. (The GENERATION *Resolution* slider is unrelated: it sets the existing orbital mesh, still the
+default rendering, and is part of the archived world.)
+
+**Finding — terrain detail limit**: the existing elevation field has no feature finer than about R / 30 (its highest
+octaves: detail 24 x 2^3 and ridges 5 x 2^3 cycles per radian). The orbital mesh at resolution 64 (spacing R / 41)
+already samples most of it, so patches finer than level ~3-4 add triangles but no new relief: the LOD adapts (vertex
+grid), the terrain looks the same. Ground-level exploration will need finer deterministic detail, a generation change
+deliberately left out of V0.2.0A.
+Statistics: patches / budget, levels, selection time, transition edges, meshes, pending builds, estimated memory.
+Ownership: the component lives on the planet object, creates its meshes (`PatchMeshCache`: bounded, recycled LRU,
+destroyed explicitly) and releases everything when switched off or destroyed (leaving Play mode); regeneration or
+loading a world invalidates its patch data on the next frame. (V0.2.0B: thumbnails capture the legacy faces, see below.)
+Not a streaming system: patch meshes are built synchronously on the main thread.
+
+## Seamless Adaptive Terrain (V0.2.0B)
+
+Panel **ADAPTIVE TERRAIN** > **Renderer: Legacy / Adaptive** (`Terrain/AdaptiveTerrainRenderer`). Legacy (the six
+face meshes) stays the default and the fallback. Adaptive draws the terrain as crack-free adaptive patches with the
+same natural appearance, built progressively; switching never regenerates the planet, never changes the seed or any
+world setting and never marks the world as modified. The legacy faces stay on screen until the adaptive covering of
+the current planet is complete and has caught up with the LOD target (warm-up), so no switch, regeneration or world
+load shows an empty planet; only one terrain is visible at a time (the faces' renderers are off while adaptive is
+shown). Scientific views always use the legacy faces.
+
+**Stitching** (`Terrain/PatchTopology`): coverings are 2:1 balanced (V0.2.0A selector), so an edge meets at most one
+level coarser. Each patch is triangulated as 2 x 2 blocks, each a fan of 8 triangles around its center vertex; an edge
+facing a coarser neighbor (stitch mask bit) skips its odd vertices (fans of 7, or 6 at a corner), so it consists of
+exactly the coarse neighbor's segments between even vertices, which are bit-identical on both sides (shared lattice).
+No T-junction, no degenerate or overlapping triangle, any combination of the four edges. One index buffer per mask
+(16), shared per resolution; a neighbor change only swaps a patch's index buffer. Tested: the union of every patch of
+mixed coverings (cube corner, face edge, 3-9 levels) is a closed, consistently oriented surface (each edge shared by
+exactly two triangles of opposite orientation, V - E + F = 2). Small skirts (2e-5 R + 2% of the vertex spacing) hang
+under each edge as a guard against sub-pixel gaps from float32 rounding of patch-relative positions only; they are
+not the continuity mechanism.
+
+**Normals and colors**: normals use one finite-difference spacing for every level (a quarter face / 256, finer than
+any feature of the current elevation field), so a vertex shared by two levels or two faces has the same normal on
+every side (no lighting seam). Colors use the legacy rule (`PlanetMeshBuilder.TerrainColor`: Natural Planet on land,
+elevation palette on the ocean floor; the same `NaturalSurface` instance, evaluated with per-thread buffers) and the
+standard sRGB curve. On the shared lattice the adaptive points and colors equal the legacy faces (tested to 2e-6 R and
+2e-3). Stitched edges drop their odd vertices, so both sides interpolate the same endpoints.
+
+**Displayed covering** (`Terrain/AdaptiveCovering`): follows the LOD target only through atomic replacements — a leaf
+replaced by its four children once all four meshes are ready, four siblings replaced by their parent once it is
+ready — and only when the covering stays 2:1 balanced (neighbor replacements the target also needs go first: splits
+coarse to fine, merges fine to coarse). Complete, non-overlapping and balanced at every frame; a parent stays visible
+until all its children can replace it; refinement proceeds a level at a time, nearest / largest error first.
+
+**Construction** (`Terrain/PatchBuildScheduler`, `Terrain/AdaptivePatchGeometry`): each frame the renderer (1) re-runs
+the selection only if the camera moved by more than 0.2% of its altitude or turned, (2) uploads at most N finished
+patches (main thread: `Mesh` writes), (3) advances the displayed covering, (4) requests the missing patches in priority
+order. At most *Max Pending* requests are queued or building; requests that leave the needed list are cancelled.
+Geometry is built on worker threads (runners pulling the next job; default processor count - 2, between 1 and 4) or,
+with *Background Build* off, on the main thread within the *Construction Budget* (ms per frame). Workers read only an
+immutable `AdaptiveSurfaceSnapshot` (planet, Natural Planet data, copied color ramp, color space, resolution) and
+write pooled CPU buffers; they never call Unity. Each snapshot has a generation number: regeneration, world loads and
+appearance changes create a new one, cancel queued work, and every result of an older generation is discarded before
+it could reach a mesh. Meshes (`PatchMeshCache`): bounded slots (max(*maxPatchMeshes*, 2 x budget + 64)), recycled
+least recently used first (displayed and requested patches protected), destroyed explicitly when switching to Legacy,
+on regeneration reuse, scene unload and Play-mode exit.
+
+**Rendering**: the patches are drawn with the planet's terrain material and a property block filled by the same
+writers as the face renderers (terminator wrap, haze, cloud uniforms and time, night / twilight) plus the planet frame
+(`_PlanetFromWorld`, `_AdaptivePatch`: patch vertices are relative to their patch origin; the shader recovers the
+planet-space position for cloud shadows; both are zero for the legacy faces, which are unchanged). Per-patch bounds
+let Unity frustum-cull the draws. LOD selection weights patches entirely outside the view frustum by 0.25 (they
+refine later; the covering stays complete, so turning the camera never reveals a hole). Patch-geometry spheres are
+cached: selection about 3x cheaper than V0.2.0A.
+
+**Compatibility**: ocean, bathymetry, atmosphere and clouds do not depend on the terrain mesh (unchanged). Rivers and
+lakes are still built on the legacy face mesh (same geography, same data per generation); close up, the adaptive
+terrain can sit slightly above or below them where the legacy triangles cut corners (river lift / lake shorelines:
+a V0.2.0C topic). Thumbnails always capture the complete legacy faces, forced visible for that synchronous render only
+(never a half-built adaptive state, never a wait). The diagnostic overlay outlines the displayed adaptive covering; the
+diagnostic mesh preview is only available with the Legacy renderer.
+
+**Precision and scale (for V0.2.0C)**: the planet radius is 100 units; positions are float32. Patch vertices are stored
+relative to their patch origin (subtracted in double) and the draw matrix is computed in one place
+(`AdaptiveTerrainRenderer.PatchMatrix`), so a floating origin (camera-relative matrices computed in double) only
+changes that function. World space is still float32 around the planet center (about 1e-5 units, 1e-7 R, at the
+surface): below that scale the world transform, not the patches, is the limit. Physical scale (units per meter) is
+not defined yet.
+
+**Manual check (Play mode)**: 1 seed 1337 in Legacy, capture; 2 Adaptive: compare coastlines, colors, ocean, atmosphere;
+3 orbit: no hole, flicker or lighting seam; 4 slow approach: levels refine, no background visible; 5 rapid zoom in / out:
+pending stays bounded, cancelled / discarded grow; 6 low patch budget: coarser, still complete; 7 Show Patch LOD:
+red stitched transitions, white face edges; 8 regenerate while building: never the old planet; 9 save / load two worlds
+in the World Library: previews and worlds correct; 10 switch Legacy / Adaptive repeatedly: no corruption, memory flat;
+11 still camera: builds settle to 0 pending; 12 several minutes of exploration: no stall or leak.
+
 ## Architecture
 
 | Layer | Files | Role |
@@ -231,12 +380,44 @@ library closes. No per-frame disk access, JSON parsing or decoding; idle display
 | Library | `Library/WorldThumbnailCache` | Lazy, bounded, released thumbnail textures |
 | Library | `Library/WorldLibraryModel` | In-memory list, Unicode search, deterministic sorts |
 | Presentation | `UI/WorldLibraryPanel` | World Library overlay: cards, pages, details, actions |
+| Terrain | `Terrain/PlanetPatchId`, `Terrain/CubeSphereCoordinates` | Patch addresses and hierarchy; cube-sphere coordinate math on the existing projection |
+| Terrain | `Terrain/PatchNeighbors`, `Terrain/PatchCoverage` | Cross-face / cross-level neighbors; covering validation and T-junction measurement |
+| Terrain | `Terrain/TerrainElevationSampler`, `Terrain/PatchMeshBuilder` | Adapter to the existing elevation field; fixed-grid patch meshes |
+| Terrain | `Terrain/TerrainLodSelector` | Settings, screen-space-error selection, budget, hysteresis |
+| Terrain | `Terrain/PatchMeshCache`, `Terrain/AdaptiveTerrainOverlay`, `Terrain/AdaptiveTerrainDebugView` | Bounded mesh ownership; outline overlay; ADAPTIVE TERRAIN DEBUG lifecycle and drawing |
+| Terrain | `Terrain/PatchTopology` | Stitched index buffers (16 masks) and skirts |
+| Terrain | `Terrain/AdaptivePatchGeometry` | Immutable surface snapshot, thread-safe patch geometry builder |
+| Terrain | `Terrain/AdaptiveCovering` | Displayed covering: atomic, balanced split / merge transitions |
+| Terrain | `Terrain/PatchBuildScheduler` | Bounded, generation-safe build pipeline (worker threads or main-thread budget) |
+| Terrain | `Terrain/AdaptiveTerrainRenderer` | TERRAIN RENDERER: Adaptive — lifecycle, uploads, stitching, natural drawing |
+| Presentation | `UI/PlanetGenerationPanel.AdaptiveTerrain` | ADAPTIVE TERRAIN section (renderer selector, LOD, construction, diagnostics) |
 
 Elevation convention: dimensionless, fraction of the reference radius
 (surface point = `dir * radius * (1 + elevation)`), so terrain shape is independent of the
 rendering scale.
 
 ## Changelog
+
+### V0.2.0B — Seamless Adaptive Planet Terrain
+- **Renderer: Legacy / Adaptive**: crack-free adaptive patches (2:1 balance + index stitching), progressive construction
+  on worker threads with generation-safe cancellation, natural appearance shared with the legacy faces. Details:
+  *Seamless Adaptive Terrain* above.
+- Shared rules: `PlanetMeshBuilder.TerrainColor` (legacy colors unchanged), `NaturalSurface.Evaluate` with caller
+  buffers, `PlanetColorRamp.Clone / ContentEquals`.
+- `PlanetTerrain` shader: `_PlanetFromWorld` / `_AdaptivePatch` (zero for the legacy faces: unchanged output).
+- `PlanetVisualController`: face visibility by owner (`SetTerrainFacesHidden`, `ForceTerrainFacesVisible`, replacing
+  V0.2.0A's `SetTerrainFacesVisible`), `WriteAdaptiveTerrainProperties`. Thumbnails capture the legacy faces in every
+  mode (V0.2.0A made them wait during the diagnostic preview).
+- LOD selector: cached patch spheres, optional frustum weighting. Generation, archives and defaults untouched.
+
+### V0.2.0A — Adaptive Planet Terrain Foundation
+- New `Terrain/` layer: patch addresses, cube-sphere coordinates, cross-face neighbors, elevation adapter, patch
+  meshes, screen-space-error LOD selection with budget and hysteresis, coverage validation. Details: *Adaptive
+  Terrain Foundation* above.
+- Opt-in ADAPTIVE TERRAIN DEBUG (overlay or mesh preview); the planet rendering is unchanged by default.
+- `PlanetVisualController.SetTerrainFacesVisible` (used by the preview only; replaced in V0.2.0B).
+- Generation, hydrology, climate, biomes, oceans, atmosphere, clouds, lighting, defaults and archives are untouched
+  (generator version stays `Genesis V0.1.3B`: worlds reconstruct exactly).
 
 ### V0.1.3B — World Library
 - The V0.1.3A archive browser became the **World Library**: a full-screen overlay with planet cards, search, sort, pages,
@@ -603,6 +784,14 @@ rendering scale.
 ## Tests
 
 Window > General > Test Runner > EditMode > run `Planetwalker.Tests.EditMode`.
+Adaptive terrain: `AdaptiveTerrainTests` (engine independent, A - O and T: identifiers, hierarchy, coverage, coordinates
+against the existing projection, neighbors, shared edges, elevation equivalence, meshes, selection, budget, hysteresis,
+performance / allocation report on the reference seeds) and `AdaptiveTerrainRuntimeTests` (P - S: invalidation,
+resource cleanup, no effect on world settings, archive compatibility with the debug view active).
+Seamless terrain (V0.2.0B): `AdaptiveTerrainSeamTests` (engine independent: watertight mixed coverings, stitch
+topology, displayed-covering transitions, pipeline bounds / cancellation / generations, sampling rules, performance)
+and `AdaptiveTerrainRendererTests` (legacy equivalence, switching, leaks, destruction, regeneration and loads while
+building, ocean / atmosphere / clouds / rivers / lakes, thumbnails, erratic camera, Unity tick costs).
 World archive: `WorldArchiveFormatTests` (format, schema, validation, identity, safe storage; engine independent) and
 `WorldArchiveSessionTests` (live planet: unsaved changes, regeneration counts, deterministic reconstruction of the
 reference seeds, presentation, leaks, save / list / load timings). Both use a temporary folder, never the user's archives.

@@ -54,6 +54,11 @@ Shader "Planetwalker/PlanetTerrain"
             float4 _CloudSeed;
             float _CloudLocalScale;
             half _NightAmbient;
+            // Adaptive terrain patches (V0.2.0B): vertices are relative to each patch's origin, so the planet-space
+            // position (cloud shadows) comes from the world position and the planet's world-to-object matrix.
+            // Both zero for the legacy faces, whose object space is already the planet's.
+            float4x4 _PlanetFromWorld;
+            float _AdaptivePatch;
         CBUFFER_END
         ENDHLSL
 
@@ -93,7 +98,7 @@ Shader "Planetwalker/PlanetTerrain"
                 Varyings output;
                 output.positionCS = TransformObjectToHClip(input.positionOS.xyz);
                 output.positionWS = TransformObjectToWorld(input.positionOS.xyz);
-                output.positionOS = input.positionOS.xyz;
+                output.positionOS = _AdaptivePatch > 0.5 ? mul(_PlanetFromWorld, float4(output.positionWS, 1.0)).xyz : input.positionOS.xyz;
                 output.normalWS = TransformObjectToWorldNormal(input.normalOS);
                 output.color = input.color;
                 return output;

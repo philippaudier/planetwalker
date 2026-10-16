@@ -313,7 +313,7 @@ namespace Planetwalker.UI
                 && oceanShadingToggle != null && atmosphereToggle != null && terminatorSlider != null
                 && cloudToggle != null && cloudAltitudeSlider != null && cloudLegendBar != null && cloudSkyLabel != null
                 && solarTimeSlider != null && contemplateButton != null && showControlsButton != null && contemplationHint != null
-                && ArchiveLayoutComplete())
+                && ArchiveLayoutComplete() && AdaptiveLayoutComplete())
             {
                 return;
             }
@@ -399,6 +399,7 @@ namespace Planetwalker.UI
             biomeAriditySlider.onValueChanged.AddListener(OnBiomeSettingChanged);
             biomeSharpnessSlider.onValueChanged.AddListener(OnBiomeSettingChanged);
             biomeAlpineSlider.onValueChanged.AddListener(OnBiomeSettingChanged);
+            EnableAdaptiveTerrain();
             EnableArchive();
             if (bootstrap != null)
             {
@@ -478,6 +479,7 @@ namespace Planetwalker.UI
             biomeAriditySlider.onValueChanged.RemoveListener(OnBiomeSettingChanged);
             biomeSharpnessSlider.onValueChanged.RemoveListener(OnBiomeSettingChanged);
             biomeAlpineSlider.onValueChanged.RemoveListener(OnBiomeSettingChanged);
+            DisableAdaptiveTerrain();
             DisableArchive();
             if (bootstrap != null)
             {
@@ -520,6 +522,7 @@ namespace Planetwalker.UI
             }
             SyncHydrologyToggle();
             UpdateArchive();
+            UpdateAdaptiveStats();
         }
 
         void LateUpdate()
@@ -1902,7 +1905,7 @@ namespace Planetwalker.UI
             panelScroll.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.AutoHide;
 
             CreateLabel(panel, font, "PLANETWALKER", 26, FontStyle.Bold, TextColor, 32f);
-            CreateLabel(panel, font, "GENESIS V0.1.3B", 14, FontStyle.Normal, AccentColor, 20f);
+            CreateLabel(panel, font, "GENESIS V0.2.0B", 14, FontStyle.Normal, AccentColor, 20f);
             CreateSpacer(panel, 6f);
             BuildArchiveSection(panel, font);
             worldLibrary = WorldLibraryPanel.Create(transform, font);
@@ -2082,6 +2085,8 @@ namespace Planetwalker.UI
             biomeBar.gameObject.SetActive(false);
             biomeLegendTicks.gameObject.SetActive(false);
             biomeStatsText = CreateLabel(panel, font, "", 11, FontStyle.Normal, MutedTextColor, 30f);
+
+            BuildAdaptiveTerrainSection(panel, font);
 
             CreateSpacer(panel, 4f);
             statsText = CreateLabel(panel, font, "", 13, FontStyle.Normal, MutedTextColor, 54f);

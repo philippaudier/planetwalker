@@ -186,10 +186,7 @@ namespace Planetwalker.Rendering
             switch (context.View)
             {
                 case PlanetDebugView.None:
-                    // Natural Planet on land; the ocean floor keeps the elevation palette (seen through the ocean).
-                    return context.Natural != null && elevationAboveSea > 0f
-                        ? context.Natural.Evaluate(direction, elevation)
-                        : ramp.Evaluate(elevationAboveSea, 1f - Vector3.Dot(normal, direction));
+                    return TerrainColor(context.Natural, ramp, planet.SeaLevel, direction, elevation, normal);
                 case PlanetDebugView.ContinentalMask:
                 {
                     float gray = Mathf.Lerp(0.12f, 1f, height.GetContinentalMask(direction));
@@ -275,6 +272,22 @@ namespace Planetwalker.Rendering
                 default:
                     return Color.magenta;
             }
+        }
+
+        /// <summary>
+        /// Terrain color of the default view (sRGB): Natural Planet on land, the elevation palette on the ocean floor
+        /// (seen through the ocean) or everywhere when <paramref name="natural"/> is null. The single rule shared by
+        /// the legacy faces and the adaptive patches (V0.2.0B); pass scratch buffers to call it off the main thread.
+        /// </summary>
+        public static Color TerrainColor(NaturalSurface natural, PlanetColorRamp ramp, float seaLevel, Vector3 direction, float elevation,
+            Vector3 normal, float[] scores = null, float[] pointScores = null)
+        {
+            float elevationAboveSea = elevation - seaLevel;
+            if (natural != null && elevationAboveSea > 0f)
+            {
+                return scores != null ? natural.Evaluate(direction, elevation, scores, pointScores) : natural.Evaluate(direction, elevation);
+            }
+            return ramp.Evaluate(elevationAboveSea, 1f - Vector3.Dot(normal, direction));
         }
 
         /// <summary>Builds an undisplaced unit cube-sphere (all six faces in one mesh).</summary>

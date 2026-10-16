@@ -69,8 +69,15 @@ namespace Planetwalker.Library
             RenderTexture target = null;
             Texture2D readback = null;
             RenderTexture previousActive = RenderTexture.active;
+            // The adaptive terrain (V0.2.0B) draws for the main camera only and may be mid-refinement: previews always
+            // capture the complete legacy faces, shown just for this synchronous render.
+            bool facesHidden = !visual.TerrainFacesVisible;
             try
             {
+                if (facesHidden)
+                {
+                    visual.ForceTerrainFacesVisible(true);
+                }
                 cameraObject = new GameObject("Planetwalker Thumbnail Camera") { hideFlags = HideFlags.HideAndDontSave };
                 cameraObject.transform.SetPositionAndRotation(center + view * distance, Quaternion.LookRotation(-view, axis));
                 Camera camera = cameraObject.AddComponent<Camera>();
@@ -131,6 +138,10 @@ namespace Planetwalker.Library
             }
             finally
             {
+                if (facesHidden)
+                {
+                    visual.ForceTerrainFacesVisible(false);
+                }
                 RenderTexture.active = previousActive;
                 if (cameraObject != null)
                 {

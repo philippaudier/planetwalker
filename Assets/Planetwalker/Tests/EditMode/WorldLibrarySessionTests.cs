@@ -35,6 +35,7 @@ namespace Planetwalker.Tests
             root = WorldArchiveTestUtil.CreateTempDirectory();
             store = new WorldArchiveStore(Path.Combine(root, "Worlds"));
             thumbnails = new WorldThumbnailStore(Path.Combine(root, "Thumbnails"));
+            Directory.CreateDirectory(store.Directory); // tests may place archive files before the first save
             Assert.AreNotEqual(Path.GetFullPath(PlanetBootstrap.DefaultThumbnailsDirectory), thumbnails.Directory, "Never the user's thumbnails");
         }
 
@@ -563,9 +564,11 @@ namespace Planetwalker.Tests
             int baseline = Resources.FindObjectsOfTypeAll<Texture2D>().Length;
             for (int round = 0; round < 10; round++)
             {
-                library.Open();
+                library.Open(); // reopens on the last selected world's page (round 0: page 1; then: the last page, 6 worlds)
                 library.FlushThumbnails();
-                Assert.AreEqual(WorldLibraryPanel.PageSize, library.ThumbnailCache.LoadedCount, "R: only the visible page is decoded");
+                int visible = library.VisibleEntries.Count();
+                Assert.AreEqual(round == 0 ? WorldLibraryPanel.PageSize : 30 % WorldLibraryPanel.PageSize, visible);
+                Assert.AreEqual(visible, library.ThumbnailCache.LoadedCount, "R: only the visible page is decoded");
                 for (int p = 0; p < library.PageCount; p++)
                 {
                     library.ShowPage(p);
