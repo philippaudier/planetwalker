@@ -23,6 +23,8 @@ Shader "Planetwalker/PlanetTerrain"
         [HideInInspector] _CloudParams3 ("Axis (xyz), time", Vector) = (0, 1, 0, 0)
         [HideInInspector] _CloudSeed ("Noise offset (xyz), softness", Vector) = (0, 0, 0, 0.12)
         [HideInInspector] _CloudLocalScale ("Planet units per object unit", Float) = 1
+        // Night darkness (V0.1.2D), set per renderer; 1 (default) = ambient everywhere (previous look).
+        [HideInInspector] _NightAmbient ("Ambient kept on the night side", Float) = 1
     }
 
     SubShader
@@ -51,6 +53,7 @@ Shader "Planetwalker/PlanetTerrain"
             float4 _CloudParams3;
             float4 _CloudSeed;
             float _CloudLocalScale;
+            half _NightAmbient;
         CBUFFER_END
         ENDHLSL
 
@@ -102,12 +105,18 @@ Shader "Planetwalker/PlanetTerrain"
                 Light mainLight = GetMainLight();
                 half wrapped = (dot(normalWS, mainLight.direction) + _LightWrap) / (1.0 + _LightWrap);
                 half3 direct = mainLight.color * saturate(wrapped);
+                // Planet shadow beyond the terminator (only with the controller: _NightAmbient < 1).
+                if (_NightAmbient < 1.0)
+                {
+                    direct *= PlanetShadow(input.positionWS, _AtmoShell.xyz, mainLight.direction, -0.1);
+                }
                 // Cloud shadows dim the direct light only (colors unchanged).
                 if (_CloudParams.w > 0.0)
                 {
                     direct *= 1.0 - CloudShadow(input.positionOS * _CloudLocalScale, normalize(TransformWorldToObjectDir(mainLight.direction)));
                 }
-                half3 ambient = SampleSH(normalWS) * _AmbientStrength;
+                half3 ambient = SampleSH(normalWS) * _AmbientStrength
+                    * DaylightAmbient(input.positionWS, _AtmoShell.xyz, mainLight.direction, _NightAmbient);
                 half3 color = input.color.rgb * (direct + ambient) * _Brightness;
                 if (_AtmoParams.w > 0.0)
                 {

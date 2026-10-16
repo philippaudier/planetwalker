@@ -48,6 +48,7 @@ namespace Planetwalker.Rendering
         PlanetDebugView appliedOceanAtmosphereView = (PlanetDebugView)(-1);
         Vector4 appliedHazeFrame;
         CloudSettings appliedClouds;
+        SolarSettings appliedSolarShading;
 
         /// <summary>Oceans and atmosphere settings (rendering only). Changes apply on the next frame (Play
         /// mode) or on <see cref="ApplyOceanAtmosphere"/> / <see cref="RefreshColors"/> / <see cref="Render"/>.</summary>
@@ -99,7 +100,8 @@ namespace Planetwalker.Rendering
             clouds.Sanitize();
             return appliedOceanAtmosphere == null || !appliedOceanAtmosphere.AppearanceEquals(oceanAtmosphere)
                 || appliedOceanAtmosphereView != debugView || appliedHazeFrame != HazeFrame()
-                || appliedClouds == null || !appliedClouds.AppearanceEquals(clouds);
+                || appliedClouds == null || !appliedClouds.AppearanceEquals(clouds)
+                || appliedSolarShading == null || !appliedSolarShading.ShadingEquals(solar);
         }
 
         /// <summary>
@@ -159,6 +161,7 @@ namespace Planetwalker.Rendering
             oceanProperties.SetFloat(LightWrapId, oceanAtmosphere.LightWrap);
             SetHaze(oceanProperties);
             WriteCloudUniforms(oceanProperties, Planet != null ? Planet.OceanRadius : 1f, cloudThreshold);
+            WriteSolarShading(oceanProperties);
             OceanRenderer.SetPropertyBlock(oceanProperties);
 
             // Terminator softness: the terrain's existing main-light wrap (no second lighting system).
@@ -166,6 +169,7 @@ namespace Planetwalker.Rendering
             terrainProperties.SetFloat(LightWrapId, oceanAtmosphere.LightWrap);
             SetHaze(terrainProperties);
             WriteCloudUniforms(terrainProperties, 1f, cloudThreshold);
+            WriteSolarShading(terrainProperties);
             foreach (MeshRenderer faceRenderer in faceRenderers)
             {
                 if (faceRenderer == null)
@@ -187,12 +191,14 @@ namespace Planetwalker.Rendering
                 atmosphereProperties ??= new MaterialPropertyBlock();
                 atmosphereProperties.SetFloat(StrengthId, oceanAtmosphere.atmosphereStrength);
                 atmosphereProperties.SetFloat(PlanetRatioId, 1f / (1f + oceanAtmosphere.atmosphereThickness));
+                atmosphereProperties.SetFloat(WarmStrengthId2, TwilightWarmStrength(AtmosphereMaterialInUse));
                 EnsureAtmosphereResources();
             }
             appliedOceanAtmosphere = oceanAtmosphere.Clone();
             appliedOceanAtmosphereView = debugView;
             appliedHazeFrame = HazeFrame();
             appliedClouds = clouds.Clone();
+            appliedSolarShading = solar.Clone();
             OceanAtmosphereApplyCount++;
         }
 
@@ -213,7 +219,7 @@ namespace Planetwalker.Rendering
                 return;
             }
             block.SetVector(AtmoParamsId, new Vector4(frame.w, shell.GetFloat(DensityId), shell.GetFloat(FalloffId), strength));
-            block.SetVector(AtmoParams2Id, new Vector4(shell.GetFloat(NightLevelId), shell.GetFloat(WarmStrengthId), shell.GetFloat(SurfaceCapId), 0f));
+            block.SetVector(AtmoParams2Id, new Vector4(shell.GetFloat(NightLevelId), TwilightWarmStrength(shell), shell.GetFloat(SurfaceCapId), 0f));
             block.SetColor(AtmoColorId, shell.GetColor(AtmosphereColorId));
             block.SetColor(AtmoWarmColorId, shell.GetColor(WarmColorId));
         }

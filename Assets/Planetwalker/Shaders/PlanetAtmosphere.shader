@@ -18,7 +18,7 @@ Shader "Planetwalker/PlanetAtmosphere"
         _Density ("Density", Range(0, 1)) = 0.03
         _Falloff ("Height Falloff", Range(0, 8)) = 3
         _PlanetRatio ("Ocean Radius / Shell Radius", Range(0.5, 1)) = 0.975
-        _NightLevel ("Night Rim Level", Range(0, 0.2)) = 0.02
+        _NightLevel ("Night Rim Level", Range(0, 0.2)) = 0.003
         _WarmStrength ("Terminator Tint Strength", Range(0, 1)) = 0.3
         _SurfaceOpticalDepth ("Surface Haze Soft Cap (terrain / ocean)", Range(0.5, 20)) = 5
     }

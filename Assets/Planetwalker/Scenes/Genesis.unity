@@ -2463,6 +2463,55 @@ RectTransform:
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 0, y: 6}
   m_Pivot: {x: 0.5, y: 0.5}
+--- !u!1 &1104658929
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1104658931}
+  - component: {fileID: 1104658930}
+  m_Layer: 0
+  m_Name: Global Volume
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1104658930
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1104658929}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 172515602e62fb746b5d573b38a5fe58, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.RenderPipelines.Core.Runtime::UnityEngine.Rendering.Volume
+  m_IsGlobal: 1
+  priority: 0
+  blendDistance: 0
+  weight: 1
+  sharedProfile: {fileID: 11400000, guid: 10fc4df2da32a41aaa32d77bc913491c, type: 2}
+--- !u!4 &1104658931
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1104658929}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1158978255
 GameObject:
   m_ObjectHideFlags: 0
@@ -2882,6 +2931,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e0bf50029dc998f89905cab5d6a63633, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Planetwalker::Planetwalker.Rendering.PlanetVisualController
+  clouds:
+    showClouds: 1
+    coverage: 0.45
+    density: 0.5
+    detail: 0.5
+    weatherStrength: 0.5
+    convection: 0.5
+    shadowStrength: 0.25
+    altitude: 0.006
+    motion: 0
+    weatherSeed: 0
+  cloudMaterial: {fileID: 0}
   terrainMaterial: {fileID: 2100000, guid: fa1502f67699ec66992bf75da12df3f5, type: 2}
   oceanMaterial: {fileID: 2100000, guid: 44af18889c8a822769193e2c50192ab4, type: 2}
   debugMaterial: {fileID: 0}
@@ -2972,6 +3033,25 @@ MonoBehaviour:
     regionalVariation: 0.5
     rockExposure: 0.5
     saturation: 0.9
+  oceanAtmosphere:
+    oceanShading: 1
+    depthContrast: 0.5
+    shelfVisibility: 0.5
+    oceanRoughness: 0.35
+    specularIntensity: 0.5
+    atmosphere: 1
+    atmosphereStrength: 1
+    atmosphereThickness: 0.025
+    terminatorSoftness: 0.2
+  atmosphereMaterial: {fileID: 0}
+  solar:
+    dayNightCycle: 0
+    paused: 0
+    cycleDuration: 240
+    solarTime: 0.5
+    twilightWarmth: 0.5
+    nightAmbient: 0.04
+  sunLight: {fileID: 0}
 --- !u!1 &1447077249
 GameObject:
   m_ObjectHideFlags: 0
@@ -3244,6 +3324,61 @@ MonoBehaviour:
   surfaceVariationValue: {fileID: 0}
   surfaceRockValue: {fileID: 0}
   surfaceSaturationValue: {fileID: 0}
+  oceanShadingToggle: {fileID: 0}
+  atmosphereToggle: {fileID: 0}
+  oceanContrastSlider: {fileID: 0}
+  oceanShelfSlider: {fileID: 0}
+  oceanRoughnessSlider: {fileID: 0}
+  oceanSpecularSlider: {fileID: 0}
+  atmosphereStrengthSlider: {fileID: 0}
+  atmosphereThicknessSlider: {fileID: 0}
+  terminatorSlider: {fileID: 0}
+  oceanContrastValue: {fileID: 0}
+  oceanShelfValue: {fileID: 0}
+  oceanRoughnessValue: {fileID: 0}
+  oceanSpecularValue: {fileID: 0}
+  atmosphereStrengthValue: {fileID: 0}
+  atmosphereThicknessValue: {fileID: 0}
+  terminatorValue: {fileID: 0}
+  cloudToggle: {fileID: 0}
+  cloudMotionToggle: {fileID: 0}
+  cloudCoverageSlider: {fileID: 0}
+  cloudDensitySlider: {fileID: 0}
+  cloudDetailSlider: {fileID: 0}
+  cloudWeatherSlider: {fileID: 0}
+  cloudConvectionSlider: {fileID: 0}
+  cloudShadowSlider: {fileID: 0}
+  cloudAltitudeSlider: {fileID: 0}
+  cloudCoverageValue: {fileID: 0}
+  cloudDensityValue: {fileID: 0}
+  cloudDetailValue: {fileID: 0}
+  cloudWeatherValue: {fileID: 0}
+  cloudConvectionValue: {fileID: 0}
+  cloudShadowValue: {fileID: 0}
+  cloudAltitudeValue: {fileID: 0}
+  cloudSkyButton: {fileID: 0}
+  cloudAutoSkyButton: {fileID: 0}
+  cloudSkyLabel: {fileID: 0}
+  cloudDebugToggle: {fileID: 0}
+  cloudViewButton: {fileID: 0}
+  cloudViewLabel: {fileID: 0}
+  cloudLegendText: {fileID: 0}
+  cloudLegendBar: {fileID: 0}
+  cloudLegendTicks: {fileID: 0}
+  cloudLegendNote: {fileID: 0}
+  solarCycleToggle: {fileID: 0}
+  solarPauseButton: {fileID: 0}
+  solarPauseLabel: {fileID: 0}
+  solarTimeSlider: {fileID: 0}
+  solarTimeValue: {fileID: 0}
+  solarDurationSlider: {fileID: 0}
+  solarDurationValue: {fileID: 0}
+  twilightSlider: {fileID: 0}
+  twilightValue: {fileID: 0}
+  solarResetButton: {fileID: 0}
+  contemplateButton: {fileID: 0}
+  showControlsButton: {fileID: 0}
+  contemplationHint: {fileID: 0}
   biomeToggle: {fileID: 0}
   biomeViewButton: {fileID: 0}
   biomeViewLabel: {fileID: 0}
@@ -5198,8 +5333,8 @@ MonoBehaviour:
     m_Bits: 1
   m_VolumeTrigger: {fileID: 0}
   m_VolumeFrameworkUpdateModeOption: 2
-  m_RenderPostProcessing: 0
-  m_Antialiasing: 0
+  m_RenderPostProcessing: 1
+  m_Antialiasing: 3
   m_AntialiasingQuality: 2
   m_StopNaN: 0
   m_Dithering: 0
@@ -5213,7 +5348,7 @@ MonoBehaviour:
   m_RequiresColorTexture: 0
   m_TaaSettings:
     m_Quality: 3
-    m_FrameInfluence: 0.1
+    m_FrameInfluence: 0.100000024
     m_JitterScale: 1
     m_MipBias: 0
     m_VarianceClampScale: 0.9
@@ -6172,3 +6307,4 @@ SceneRoots:
   - {fileID: 1854109012}
   - {fileID: 122695396}
   - {fileID: 1536127874}
+  - {fileID: 1104658931}

@@ -74,9 +74,34 @@ half3 AtmosphereLight(AtmosphereInputs a, float3 origin, float3 ray, float surfa
     float3 mid = normalize(o + ray * (0.5 * (t0 + t1)));
     float mu = dot(mid, a.lightDirection);
     half day = smoothstep(-0.25, 0.3, mu);
+    // Twilight (V0.1.2D): sunlight reaching the air near the terminator crossed a long path and lost its
+    // blue first (Rayleigh-like reddening), strongest low in the atmosphere; the warm tint is added on
+    // top of the reddened sky, never blended with the blue (blue + orange blends read purple).
+    half twilight = (1.0 - smoothstep(-0.05, 0.4, mu)) * (1.0 - 0.5 * height) * saturate(a.warmStrength / 0.3);
+    half3 reddening = exp(-half3(0.15, 0.45, 1.0) * 3.0 * twilight);
     half warm = (1.0 - smoothstep(0.0, 0.3, abs(mu - 0.03))) * a.warmStrength * saturate((optical - 3.0) / 6.0);
-    half3 color = lerp(a.dayColor, a.warmColor, warm * day);
+    half3 color = a.dayColor * reddening + a.warmColor * (warm * 1.2);
     return color * (amount * max(day, a.nightLevel));
+}
+
+// Scene ambient kept at a surface point (V0.1.2D): 1 on the day side, nightAmbient on the night side,
+// smooth across the twilight zone. Uses the geocentric up (planet center), not the surface normal, so
+// relief does not change it and terrain, ocean and clouds darken together. The sky ambient is a
+// day-side phenomenon: the night stays genuinely dark.
+half DaylightAmbient(float3 positionWS, float3 center, float3 lightDirection, half nightAmbient)
+{
+    float s = dot(normalize(positionWS - center), lightDirection);
+    return lerp(nightAmbient, 1.0, smoothstep(-0.25, 0.1, s));
+}
+
+// Planet shadow (V0.1.2D): direct sunlight reaches a surface point only while the sun is above its
+// geocentric horizon. Slopes of the (exaggerated) relief facing a sun that has already set would
+// otherwise glow beyond the terminator. horizon: the geocentric sun height where the light is gone
+// (more negative for clouds, which sit higher). Applied after, and independently of, the light wrap.
+half PlanetShadow(float3 positionWS, float3 center, float3 lightDirection, half horizon)
+{
+    float s = dot(normalize(positionWS - center), lightDirection);
+    return smoothstep(horizon, horizon + 0.12, s);
 }
 
 #endif

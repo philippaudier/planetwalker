@@ -22,6 +22,8 @@ Shader "Planetwalker/PlanetClouds"
         _CloudShadeColor ("Shaded Cloud Tint", Color) = (0.72, 0.78, 0.88, 1)
         _CloudWarmColor ("Terminator Tint", Color) = (1.0, 0.82, 0.66, 1)
         _LightWrap ("Light Wrap (terminator)", Range(0, 0.5)) = 0.08
+        _NightAmbient ("Ambient kept on the night side", Range(0, 1)) = 1
+        _TwilightWarmth ("Twilight Warmth (0.5 = default tint)", Range(0, 1)) = 0.5
         [HideInInspector] _AtmoShell ("Atmosphere center (xyz) / shell radius (w), world", Vector) = (0, 0, 0, 1)
         [HideInInspector] _AtmoParams ("Ocean radius, density, falloff, strength", Vector) = (0.975, 0.03, 3, 0)
         [HideInInspector] _AtmoParams2 ("Night level, warm strength, surface cap", Vector) = (0.02, 0.3, 5, 0)
@@ -64,6 +66,8 @@ Shader "Planetwalker/PlanetClouds"
                 half4 _CloudShadeColor;
                 half4 _CloudWarmColor;
                 half _LightWrap;
+                half _NightAmbient;
+                half _TwilightWarmth;
                 float4 _AtmoShell;
                 float4 _AtmoParams;
                 float4 _AtmoParams2;
@@ -118,15 +122,22 @@ Shader "Planetwalker/PlanetClouds"
                 Light mainLight = GetMainLight();
                 half nl = dot(normalWS, mainLight.direction);
                 half lit = saturate((nl + _LightWrap) / (1.0 + _LightWrap));
+                // Planet shadow: clouds sit higher, so they keep the sunset light a little longer.
+                if (_NightAmbient < 1.0)
+                {
+                    lit *= PlanetShadow(input.positionWS, _AtmoShell.xyz, mainLight.direction, -0.14);
+                }
                 // Self-shadowing: denser cloud towards the sun shades this point (relief, sharper at low sun).
                 float3 lightOS = normalize(TransformWorldToObjectDir(mainLight.direction));
                 float3 towardSun = normalize(d + (lightOS - d * dot(lightOS, d)) * 0.012);
                 float convectiveSun;
                 half selfShadow = saturate((CloudPotential(towardSun, 2, convectiveSun) - potential) * 2.5) * 0.4;
-                half warm = (1.0 - smoothstep(0.0, 0.35, nl)) * smoothstep(-0.12, 0.05, nl) * 0.45;
+                // Warm light near the terminator (sunlit side only), scaled by the twilight warmth; subtle, never uniform.
+                half warm = (1.0 - smoothstep(0.0, 0.35, nl)) * smoothstep(-0.12, 0.05, nl) * 0.9 * _TwilightWarmth;
                 half3 litColor = lerp(_CloudColor.rgb, _CloudColor.rgb * _CloudWarmColor.rgb, warm);
                 half body = 0.86 + 0.14 * saturate(alpha / max(_CloudParams.y, 0.05));
-                half3 ambient = SampleSH(normalWS) * _CloudShadeColor.rgb;
+                half3 ambient = SampleSH(normalWS) * _CloudShadeColor.rgb
+                    * DaylightAmbient(input.positionWS, _AtmoShell.xyz, mainLight.direction, _NightAmbient); // no self-lit night clouds
                 half3 color = litColor * mainLight.color * (lit * (1.0 - selfShadow) * body) + ambient * _CloudColor.rgb;
 
                 if (_AtmoParams.w > 0.0)

@@ -148,6 +148,7 @@ namespace Planetwalker.Rendering
             {
                 SetHaze(cloudProperties);
                 cloudProperties.SetFloat(LightWrapId, oceanAtmosphere.LightWrap);
+                WriteSolarShading(cloudProperties);
             }
         }
 

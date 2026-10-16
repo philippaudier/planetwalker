@@ -142,6 +142,19 @@ namespace Planetwalker.UI
         [SerializeField] RawImage cloudLegendBar;
         [SerializeField] RectTransform cloudLegendTicks;
         [SerializeField] Text cloudLegendNote;
+        [SerializeField] Toggle solarCycleToggle;
+        [SerializeField] Button solarPauseButton;
+        [SerializeField] Text solarPauseLabel;
+        [SerializeField] Slider solarTimeSlider;
+        [SerializeField] Text solarTimeValue;
+        [SerializeField] Slider solarDurationSlider;
+        [SerializeField] Text solarDurationValue;
+        [SerializeField] Slider twilightSlider;
+        [SerializeField] Text twilightValue;
+        [SerializeField] Button solarResetButton;
+        [SerializeField] Button contemplateButton;
+        [SerializeField] Button showControlsButton;
+        [SerializeField] Text contemplationHint;
         [SerializeField] Toggle biomeToggle;
         [SerializeField] Button biomeViewButton;
         [SerializeField] Text biomeViewLabel;
@@ -296,7 +309,8 @@ namespace Planetwalker.UI
                 && biomeToggle != null && biomeAlpineSlider != null && biomeStatsText != null && biomeLegendBar != null
                 && displayModeText != null && naturalToggle != null && surfaceSaturationSlider != null
                 && oceanShadingToggle != null && atmosphereToggle != null && terminatorSlider != null
-                && cloudToggle != null && cloudAltitudeSlider != null && cloudLegendBar != null && cloudSkyLabel != null)
+                && cloudToggle != null && cloudAltitudeSlider != null && cloudLegendBar != null && cloudSkyLabel != null
+                && solarTimeSlider != null && contemplateButton != null && showControlsButton != null && contemplationHint != null)
             {
                 return;
             }
@@ -365,6 +379,14 @@ namespace Planetwalker.UI
             cloudAutoSkyButton.onClick.AddListener(OnAutoSkyClicked);
             cloudDebugToggle.onValueChanged.AddListener(OnCloudDebugToggled);
             cloudViewButton.onClick.AddListener(OnCloudViewClicked);
+            solarCycleToggle.onValueChanged.AddListener(OnSolarCycleToggled);
+            solarPauseButton.onClick.AddListener(OnSolarPauseClicked);
+            solarTimeSlider.onValueChanged.AddListener(OnSolarTimeChanged);
+            solarDurationSlider.onValueChanged.AddListener(OnSolarDurationChanged);
+            twilightSlider.onValueChanged.AddListener(OnTwilightChanged);
+            solarResetButton.onClick.AddListener(OnSolarResetClicked);
+            contemplateButton.onClick.AddListener(OnContemplateClicked);
+            showControlsButton.onClick.AddListener(OnShowControlsClicked);
             foreach (Slider slider in OceanAtmosphereSliders())
             {
                 slider.onValueChanged.AddListener(OnOceanAtmosphereChanged);
@@ -435,6 +457,14 @@ namespace Planetwalker.UI
             cloudAutoSkyButton.onClick.RemoveListener(OnAutoSkyClicked);
             cloudDebugToggle.onValueChanged.RemoveListener(OnCloudDebugToggled);
             cloudViewButton.onClick.RemoveListener(OnCloudViewClicked);
+            solarCycleToggle.onValueChanged.RemoveListener(OnSolarCycleToggled);
+            solarPauseButton.onClick.RemoveListener(OnSolarPauseClicked);
+            solarTimeSlider.onValueChanged.RemoveListener(OnSolarTimeChanged);
+            solarDurationSlider.onValueChanged.RemoveListener(OnSolarDurationChanged);
+            twilightSlider.onValueChanged.RemoveListener(OnTwilightChanged);
+            solarResetButton.onClick.RemoveListener(OnSolarResetClicked);
+            contemplateButton.onClick.RemoveListener(OnContemplateClicked);
+            showControlsButton.onClick.RemoveListener(OnShowControlsClicked);
             foreach (Slider slider in OceanAtmosphereSliders())
             {
                 slider.onValueChanged.RemoveListener(OnOceanAtmosphereChanged);
@@ -461,6 +491,8 @@ namespace Planetwalker.UI
 
         void Update()
         {
+            UpdateContemplation();
+            UpdateSolarDisplay();
             if (pendingRegenerateTime >= 0f && Time.unscaledTime >= pendingRegenerateTime)
             {
                 pendingRegenerateTime = -1f;
@@ -1196,6 +1228,227 @@ namespace Planetwalker.UI
             }
         }
 
+        // ------------------------------------------------------------------ Lighting & time
+
+        void OnSolarCycleToggled(bool on)
+        {
+            if (!syncing && Visual != null)
+            {
+                Visual.SetDayNightCycle(on);
+                UpdateSolarLabels();
+            }
+        }
+
+        void OnSolarPauseClicked()
+        {
+            PlanetVisualController visual = Visual;
+            if (visual == null)
+            {
+                return;
+            }
+            visual.SetSolarPaused(!visual.Solar.paused);
+            UpdateSolarLabels();
+        }
+
+        /// <summary>Scrubber: light orientation only (immediate, nothing regenerated).</summary>
+        void OnSolarTimeChanged(float value)
+        {
+            if (!syncing && Visual != null)
+            {
+                Visual.SetSolarTime(value);
+                UpdateSolarLabels();
+            }
+        }
+
+        void OnSolarDurationChanged(float value)
+        {
+            if (!syncing && Visual != null)
+            {
+                Visual.SetCycleDuration(value);
+                UpdateSolarLabels();
+            }
+        }
+
+        void OnTwilightChanged(float value)
+        {
+            if (!syncing && Visual != null)
+            {
+                Visual.Solar.twilightWarmth = value;
+                UpdateSolarLabels();
+            }
+        }
+
+        void OnSolarResetClicked()
+        {
+            if (Visual != null)
+            {
+                Visual.ResetSun();
+                SyncSolarControls();
+            }
+        }
+
+        void SyncSolarControls()
+        {
+            PlanetVisualController visual = Visual;
+            if (visual == null)
+            {
+                return;
+            }
+            syncing = true;
+            SolarSettings s = visual.Solar;
+            s.Sanitize();
+            solarCycleToggle.SetIsOnWithoutNotify(s.dayNightCycle);
+            solarTimeSlider.SetValueWithoutNotify(s.solarTime);
+            solarDurationSlider.SetValueWithoutNotify(s.cycleDuration);
+            twilightSlider.SetValueWithoutNotify(s.twilightWarmth);
+            UpdateSolarLabels();
+            syncing = false;
+        }
+
+        int shownSolarMinute = -1;
+
+        /// <summary>Follows a running solar clock (slider + label; the label string only changes once per minute of solar time).</summary>
+        void UpdateSolarDisplay()
+        {
+            PlanetVisualController visual = Visual;
+            if (visual == null || solarTimeSlider == null || !visual.Solar.dayNightCycle || visual.Solar.paused)
+            {
+                return;
+            }
+            solarTimeSlider.SetValueWithoutNotify(visual.Solar.solarTime);
+            int minute = Mathf.FloorToInt(visual.Solar.solarTime * 1440f);
+            if (minute != shownSolarMinute)
+            {
+                UpdateSolarLabels();
+            }
+        }
+
+        void UpdateSolarLabels()
+        {
+            PlanetVisualController visual = Visual;
+            if (visual == null)
+            {
+                return;
+            }
+            SolarSettings s = visual.Solar;
+            shownSolarMinute = Mathf.FloorToInt(s.solarTime * 1440f);
+            solarTimeValue.text = SolarSettings.Format(s.solarTime);
+            solarDurationValue.text = s.cycleDuration >= 60f
+                ? (s.cycleDuration / 60f).ToString("0.0", CultureInfo.InvariantCulture) + " min"
+                : s.cycleDuration.ToString("0", CultureInfo.InvariantCulture) + " s";
+            twilightValue.text = (s.twilightWarmth * 100f).ToString("0", CultureInfo.InvariantCulture) + "%";
+            solarPauseLabel.text = s.paused ? "Resume" : "Pause";
+            solarPauseButton.interactable = s.dayNightCycle;
+        }
+
+        // ------------------------------------------------------------------ Contemplation mode
+
+        const float ContemplationHintSeconds = 5f;
+        float contemplationHintUntil;
+
+        /// <summary>True while the controls are hidden (contemplation mode).</summary>
+        public bool Contemplating { get; private set; }
+
+        /// <summary>
+        /// Hides (or restores) the controls. Nothing is reset or regenerated; the planet, the camera, the
+        /// clouds and the solar clock keep running. A small button, H and Esc always restore the controls.
+        /// </summary>
+        public void SetContemplation(bool on)
+        {
+            Contemplating = on;
+            if (panelFrame != null)
+            {
+                panelFrame.gameObject.SetActive(!on);
+            }
+            if (showControlsButton != null)
+            {
+                showControlsButton.gameObject.SetActive(on);
+            }
+            if (contemplationHint != null)
+            {
+                contemplationHint.gameObject.SetActive(on);
+                contemplationHint.canvasRenderer.SetAlpha(1f);
+            }
+            contemplationHintUntil = on ? Time.unscaledTime + ContemplationHintSeconds : 0f;
+        }
+
+        void OnContemplateClicked()
+        {
+            SetContemplation(true);
+        }
+
+        void OnShowControlsClicked()
+        {
+            SetContemplation(false);
+        }
+
+        void UpdateContemplation()
+        {
+            Keyboard keyboard = Keyboard.current;
+            if (keyboard != null && !(seedField != null && seedField.isFocused))
+            {
+                if (keyboard.hKey.wasPressedThisFrame)
+                {
+                    SetContemplation(!Contemplating);
+                }
+                else if (Contemplating && keyboard.escapeKey.wasPressedThisFrame)
+                {
+                    SetContemplation(false);
+                }
+            }
+            if (Contemplating && contemplationHint != null && contemplationHint.gameObject.activeSelf)
+            {
+                float remaining = contemplationHintUntil - Time.unscaledTime;
+                contemplationHint.canvasRenderer.SetAlpha(Mathf.Clamp01(remaining));
+                if (remaining <= 0f)
+                {
+                    contemplationHint.gameObject.SetActive(false);
+                }
+            }
+        }
+
+        /// <summary>Exit hint and the always-available "show controls" button (outside the panel frame).</summary>
+        void BuildContemplationOverlay(Font font)
+        {
+            Transform old = transform.Find("Contemplation Overlay");
+            if (old != null)
+            {
+                if (Application.isPlaying)
+                {
+                    Destroy(old.gameObject);
+                }
+                else
+                {
+                    DestroyImmediate(old.gameObject);
+                }
+            }
+            RectTransform overlay = CreateRect("Contemplation Overlay", transform);
+            overlay.anchorMin = Vector2.zero;
+            overlay.anchorMax = Vector2.one;
+            overlay.offsetMin = overlay.offsetMax = Vector2.zero;
+
+            contemplationHint = CreateLabel(overlay, font, "Contemplation mode - press H or Esc (or the button) to show the controls",
+                14, FontStyle.Normal, TextColor, 24f);
+            RectTransform hintRect = contemplationHint.rectTransform;
+            hintRect.anchorMin = new Vector2(0.5f, 0f);
+            hintRect.anchorMax = new Vector2(0.5f, 0f);
+            hintRect.pivot = new Vector2(0.5f, 0f);
+            hintRect.anchoredPosition = new Vector2(0f, 24f);
+            hintRect.sizeDelta = new Vector2(620f, 24f);
+            contemplationHint.alignment = TextAnchor.MiddleCenter;
+            contemplationHint.raycastTarget = false;
+            contemplationHint.gameObject.SetActive(false);
+
+            showControlsButton = CreateButton(overlay, font, "Show controls (H)");
+            var buttonRect = (RectTransform)showControlsButton.transform;
+            buttonRect.anchorMin = buttonRect.anchorMax = buttonRect.pivot = new Vector2(0f, 1f);
+            buttonRect.anchoredPosition = new Vector2(PanelMargin, -PanelMargin);
+            buttonRect.sizeDelta = new Vector2(150f, 26f);
+            var group = showControlsButton.gameObject.AddComponent<CanvasGroup>();
+            group.alpha = 0.45f;
+            showControlsButton.gameObject.SetActive(false);
+        }
+
         /// <summary>The current rendering mode, always visible at the top of the panel.</summary>
         void UpdateDisplayMode(PlanetVisualController visual)
         {
@@ -1448,6 +1701,7 @@ namespace Planetwalker.UI
             SyncSurfaceControls();
             SyncOceanAtmosphereControls();
             SyncCloudControls();
+            SyncSolarControls();
             SyncHydrologyToggle();
         }
 
@@ -1600,7 +1854,7 @@ namespace Planetwalker.UI
         public void BuildLayout()
         {
             Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-
+            BuildContemplationOverlay(font);
             // Frame: as tall as the content, at most the screen height (see FitPanelToScreen); the
             // content scrolls inside it (mouse wheel, drag or the scrollbar).
             panelFrame = CreateRect(PanelObjectName, transform);
@@ -1638,7 +1892,7 @@ namespace Planetwalker.UI
             panelScroll.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.AutoHide;
 
             CreateLabel(panel, font, "PLANETWALKER", 26, FontStyle.Bold, TextColor, 32f);
-            CreateLabel(panel, font, "GENESIS V0.1.2C", 14, FontStyle.Normal, AccentColor, 20f);
+            CreateLabel(panel, font, "GENESIS V0.1.2D", 14, FontStyle.Normal, AccentColor, 20f);
             CreateSpacer(panel, 6f);
 
             var seedRow = CreateRow(panel, "Seed Row");
@@ -1687,6 +1941,20 @@ namespace Planetwalker.UI
             atmosphereThicknessSlider = CreateSliderRow(panel, font, "Atmosphere Thickness", OceanAtmosphereSettings.MinThickness,
                 OceanAtmosphereSettings.MaxThickness, false, out atmosphereThicknessValue);
             terminatorSlider = CreateSliderRow(panel, font, "Terminator Softness", 0f, 1f, false, out terminatorValue);
+
+            CreateSpacer(panel, 4f);
+            CreateLabel(panel, font, "LIGHTING & TIME", 13, FontStyle.Bold, AccentColor, 18f);
+            var solarRow = CreateRow(panel, "Solar Row");
+            solarCycleToggle = CreateToggle(solarRow, font, "Day/Night Cycle");
+            solarCycleToggle.isOn = false;
+            solarPauseButton = CreateButton(solarRow, font, "Pause");
+            solarPauseLabel = solarPauseButton.GetComponentInChildren<Text>();
+            solarTimeSlider = CreateSliderRow(panel, font, "Solar Time", 0f, 0.999f, false, out solarTimeValue);
+            solarDurationSlider = CreateSliderRow(panel, font, "Cycle Duration", SolarSettings.MinCycleDuration, SolarSettings.MaxCycleDuration, false, out solarDurationValue);
+            twilightSlider = CreateSliderRow(panel, font, "Twilight Warmth", 0f, 1f, false, out twilightValue);
+            var solarButtons = CreateRow(panel, "Solar Buttons");
+            solarResetButton = CreateButton(solarButtons, font, "Reset Sun");
+            contemplateButton = CreateButton(solarButtons, font, "Contemplate (H)");
 
             CreateSpacer(panel, 4f);
             CreateLabel(panel, font, "CLOUDS", 13, FontStyle.Bold, AccentColor, 18f);

@@ -362,7 +362,12 @@ namespace Planetwalker.Rendering
         void Update()
         {
             // Lets views and hydrology display settings change during Play mode.
-            if (!Application.isPlaying || Planet == null)
+            if (!Application.isPlaying)
+            {
+                return;
+            }
+            TickSolar();
+            if (Planet == null)
             {
                 return;
             }

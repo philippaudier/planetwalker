@@ -1,4 +1,4 @@
-# Planetwalker — Genesis V0.1.2C (Procedural Cloud Systems)
+# Planetwalker — Genesis V0.1.2D (Planetary Lighting & Presentation)
 
 ## Launch
 
@@ -29,6 +29,10 @@ referenced (the editor finds the shader by name).
 Clouds (panel **CLOUDS**, rendering only): Show Clouds, Cloud Motion (off by default), **New Sky** (another
 weather seed over the same geography) / **Planet Sky**, Cloud Coverage (area fraction), Density, Detail, Weather
 Systems, Convection, Cloud Shadows, Cloud Altitude; **Show Cloud Data** + View: Coverage / Structure (legend).
+
+Lighting & time (panel **LIGHTING & TIME**): Day/Night Cycle (off by default), Pause / Resume, Solar Time
+scrubber (12:00 = the default sun), Cycle Duration, Twilight Warmth, Reset Sun. **Contemplate (H)** hides the
+controls (orbit and zoom keep working); **H**, **Esc** or the small "Show controls" button bring them back.
 
 Development views: select the `Planet` object in Play mode and set **Debug View**:
 - `ContinentalMask`: dark gray = ocean basins, white = continental interiors (ocean hidden).
@@ -110,6 +114,27 @@ rendering scale.
 
 ## Changelog
 
+### V0.1.2D — Planetary Lighting & Presentation
+- One authoritative sun: the scene's star light, oriented by a visual solar clock (`SolarSettings`,
+  `SolarClock`, `PlanetVisualController.Solar`). Terrain, ocean (diffuse + GGX glint), atmosphere, haze,
+  clouds and cloud shadows all read it through URP's main light; no shader has its own sun vector.
+  Convention: fixed planet, sun turned around the climate rotation axis (westward with time, fixed
+  declination); solar time 0.5 = the star's original orientation (validated default). A future orbital model
+  only replaces `SolarDirection`.
+- Clock: anchored (value, real time), never accumulated: frame-rate independent, no pause / resume drift,
+  wraps in [0, 1). Off and at 0.5 by default (unchanged look). Independent of the planet seed, the weather
+  seed and the cloud animation time; kept across regeneration; Reset Sun restores the default.
+- Night: the sky ambient fades with the geocentric sun height (`_NightAmbient`, 4% kept) on terrain, ocean
+  (incl. its Fresnel sky reflection) and clouds; a planet shadow cuts direct light (and the sea glint) where the
+  sun has set, so wrapped relief no longer glows beyond the terminator (clouds keep it a little longer, being
+  higher). Atmosphere night rim 2% -> 0.3%. Day side unchanged.
+- Twilight: sunlight on the air near the terminator is reddened (blue lost first, low layers most), with the
+  warm tint added on top (no blue / orange blend: no purple ring). Twilight Warmth scales the atmosphere and
+  cloud-edge tints (0.5 = V0.1.2C).
+- Contemplation mode (panel button, H): controls hidden, camera, clouds and clock untouched; H, Esc or a faint
+  "Show controls" button restore them.
+- Cost: solar tick 0.6 us, 0 bytes per frame; frame (1080p MSAA 4x, RTX 3070, batch) 2.16 ms paused vs 2.17 ms
+  V0.1.2C with clouds and shadows; 3.18 ms running with cloud motion (3.19 ms before).
 ### V0.1.2C — Procedural Cloud Systems
 - Terrain, hydrology, rivers, lakes, climate, biomes, Natural Surface: unchanged. Clouds off = the V0.1.2B
   look (shader branches disabled, no shell).

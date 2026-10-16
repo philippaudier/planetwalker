@@ -3,6 +3,7 @@
     "rootNamespace": "Planetwalker.Tests",
     "references": [
         "Planetwalker",
+        "UnityEngine.UI",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],

@@ -43,6 +43,8 @@ Shader "Planetwalker/PlanetOcean"
         [HideInInspector] _CloudParams3 ("Axis (xyz), time", Vector) = (0, 1, 0, 0)
         [HideInInspector] _CloudSeed ("Noise offset (xyz), softness", Vector) = (0, 0, 0, 0.12)
         [HideInInspector] _CloudLocalScale ("Planet units per object unit", Float) = 1
+        // Night darkness (V0.1.2D), set per renderer; 1 (default) = ambient everywhere (previous look).
+        [HideInInspector] _NightAmbient ("Ambient kept on the night side", Float) = 1
     }
 
     SubShader
@@ -98,6 +100,7 @@ Shader "Planetwalker/PlanetOcean"
                 float4 _CloudParams3;
                 float4 _CloudSeed;
                 float _CloudLocalScale;
+                half _NightAmbient;
             CBUFFER_END
 
             #include "PlanetCloudsCommon.hlsl"
@@ -130,21 +133,21 @@ Shader "Planetwalker/PlanetOcean"
                 return output;
             }
 
-            half4 FlatOcean(float3 normalWS, float3 viewWS, Light mainLight)
+            half4 FlatOcean(float3 normalWS, float3 viewWS, Light mainLight, half ambientScale)
             {
                 half ndl = saturate(dot(normalWS, mainLight.direction));
                 half fresnel = pow(1.0 - saturate(dot(normalWS, viewWS)), _FresnelPower);
                 float3 halfDir = normalize(mainLight.direction + viewWS);
                 half glint = pow(saturate(dot(normalWS, halfDir)), _SpecularPower) * _SpecularStrength * ndl;
 
-                half3 ambient = SampleSH(normalWS) * _AmbientStrength;
+                half3 ambient = SampleSH(normalWS) * _AmbientStrength * ambientScale;
                 half3 water = lerp(_Color.rgb, _RimColor.rgb, fresnel);
                 half3 color = water * (mainLight.color * ndl + ambient) + mainLight.color * glint;
                 half alpha = saturate(lerp(_Opacity, 1.0, fresnel) + glint);
                 return half4(color, alpha);
             }
 
-            half4 BathymetryOcean(float3 normalWS, float3 viewWS, Light mainLight, float2 depth)
+            half4 BathymetryOcean(float3 normalWS, float3 viewWS, Light mainLight, float2 depth, half ambientScale)
             {
                 // Depth color: smooth curve of the normalized depth (no thresholds: no contour lines).
                 float deep = saturate(depth.x / 1.2);
@@ -160,7 +163,7 @@ Shader "Planetwalker/PlanetOcean"
                 half wrapped = saturate((nl + _LightWrap) / (1.0 + _LightWrap));
                 half nv = saturate(dot(normalWS, viewWS));
                 half fresnel = pow(1.0 - nv, _FresnelPower);
-                half3 ambient = SampleSH(normalWS) * _AmbientStrength;
+                half3 ambient = SampleSH(normalWS) * _AmbientStrength * ambientScale;
                 half3 lit = lerp(water, _RimColor.rgb, fresnel * 0.6) * (mainLight.color * wrapped + ambient);
 
                 // GGX highlight (URP's minimal BRDF form), Schlick Fresnel from water's F0 = 0.02. Clamped
@@ -191,14 +194,22 @@ Shader "Planetwalker/PlanetOcean"
                 float3 normalWS = normalize(input.normalWS);
                 float3 viewWS = GetWorldSpaceNormalizeViewDir(input.positionWS);
                 Light mainLight = GetMainLight();
-                // Cloud shadows: dim the main light for the water (colors unchanged).
+                // Night darkness: no sky ambient (nor its Fresnel sky reflection) beyond the terminator.
+                half ambientScale = DaylightAmbient(input.positionWS, _AtmoShell.xyz, mainLight.direction, _NightAmbient);
+                // Light reaching the water: cloud shadows and the planet shadow beyond the terminator (no
+                // diffuse light or sun glint where the sun has set). The haze below keeps the unshadowed light.
+                Light surfaceLight = mainLight;
                 if (_CloudParams.w > 0.0)
                 {
-                    mainLight.color *= 1.0 - CloudShadow(input.positionOS * _CloudLocalScale, normalize(TransformWorldToObjectDir(mainLight.direction)));
+                    surfaceLight.color *= 1.0 - CloudShadow(input.positionOS * _CloudLocalScale, normalize(TransformWorldToObjectDir(mainLight.direction)));
+                }
+                if (_NightAmbient < 1.0)
+                {
+                    surfaceLight.color *= PlanetShadow(input.positionWS, _AtmoShell.xyz, mainLight.direction, -0.1);
                 }
                 half4 color = _OceanShading > 0.5
-                    ? BathymetryOcean(normalWS, viewWS, mainLight, input.depth)
-                    : FlatOcean(normalWS, viewWS, mainLight);
+                    ? BathymetryOcean(normalWS, viewWS, surfaceLight, input.depth, ambientScale)
+                    : FlatOcean(normalWS, viewWS, surfaceLight, ambientScale);
                 if (_AtmoParams.w > 0.0)
                 {
                     AtmosphereInputs a;

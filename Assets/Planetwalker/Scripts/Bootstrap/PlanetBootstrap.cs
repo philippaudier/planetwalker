@@ -130,6 +130,8 @@ namespace Planetwalker.Bootstrap
                 star.intensity = 1.4f;
                 star.shadows = LightShadows.None;
             }
+            // The solar clock (V0.1.2D) orients this light: the single sun of every shader.
+            visual.SetSun(star);
 
             if (orbitCamera == null)
             {
