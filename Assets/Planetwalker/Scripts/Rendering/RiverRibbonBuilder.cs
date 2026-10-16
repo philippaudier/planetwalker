@@ -18,18 +18,25 @@ namespace Planetwalker.Rendering
     /// world half width (UV1.x) for that purpose. Rivers stop one sample past the coastline so
     /// they visibly enter the (semi-transparent) ocean.
     /// With a <see cref="LakeRiverLayer"/> (V0.1.1D-B.1) the visible REACHES are drawn instead of
-    /// whole rivers: they end a couple of samples under the water of the lake they enter and start
-    /// just under the water of the open lake they leave (topology from the layer, exact shoreline
-    /// from the true terrain), follow closed-basin connectors, and use the lake-aware drained area
-    /// for their width. Samples under lake water are flagged (UV1.y = 1) so the shader does not
-    /// lift them above the water surface.
+    /// whole rivers (topology from the layer), follow closed-basin connectors, and use the
+    /// lake-aware drained area for their width.
+    /// Lake transitions (V0.1.1D-B.2) use the RENDERED shoreline (<see cref="LakeMeshBuilder"/>):
+    /// the exact crossing of the centerline with the lake water is found by bisection and inserted
+    /// as a sample, the ribbon widens gently towards it (mouth flare) and continues under the water
+    /// for a distance scaled by its width and the render mesh spacing. Samples under lake water
+    /// carry the water radius (UV1.y, object space) and the shader never lifts them above it, so
+    /// the lake surface (drawn first, writing depth) hides the submerged part exactly along its
+    /// own shoreline: no gap, no wedge, no ribbon over the water.
     /// </remarks>
     public sealed class RiverRibbonBuilder
     {
         readonly List<Vector3> vertices = new List<Vector3>();
         readonly List<Vector3> normals = new List<Vector3>();
         readonly List<Vector4> sides = new List<Vector4>();
-        readonly List<Vector2> widths = new List<Vector2>();
+        readonly List<Vector3> widths = new List<Vector3>();
+        readonly List<float> vertexFlare = new List<float>();
+        readonly List<Vector3> markerDirections = new List<Vector3>();
+        readonly List<TransitionMarker> markerKinds = new List<TransitionMarker>();
         readonly List<int> triangles = new List<int>();
         readonly List<int> ribbonRivers = new List<int>();
         readonly List<int> ribbonStarts = new List<int>();
@@ -41,13 +48,29 @@ namespace Planetwalker.Rendering
         readonly HashSet<long> overlapPairs = new HashSet<long>();
         readonly HashSet<int> unresolvedMouths = new HashSet<int>();
         readonly List<int> ribbonReaches = new List<int>();
+        readonly List<int> ribbonStartCrossings = new List<int>();
+        readonly List<int> ribbonEndCrossings = new List<int>();
         readonly List<Vector3> rawPolyline = new List<Vector3>();
+        readonly LakeMeshBuilder ownWater = new LakeMeshBuilder();
         RiverGeometryDiagnostics diagnostics;
 
-        // Samples kept under the water at a lake inflow / outflow, so the ribbon visibly enters it.
+        // Samples kept under the water when only the hydrological (true terrain) shoreline is known.
         const int SubmergedEndSamples = 2;
         // Lake inflows whose shoreline is not met by the entry cell are searched up to this many nodes further.
         const int LakeSearchNodes = 4;
+        // Shoreline crossing refinement steps (bisection along the centerline).
+        const int CrossingBisections = 12;
+        // Under-water continuation past the shoreline: this many half widths, at least half a render
+        // quad, so the ribbon end is always hidden by the lake surface.
+        const float SubmergedHalfWidths = 3f;
+        const float SubmergedMeshSpacings = 0.5f;
+        // Mouth flare: relative widening at the shoreline, over this many half widths (at least one
+        // render quad) upstream of it.
+        const float MouthFlare = 0.3f;
+        const float FlareHalfWidths = 6f;
+        const float FlareMeshSpacings = 2f;
+        // Ribbon edges past the shoreline are pulled back into the water with this many bisection steps.
+        const int EdgeClampBisections = 7;
         // Distance from the source used for reaches that do not start at a source (no taper).
         const float NoTaperDistance = 1e3f;
 
@@ -68,8 +91,14 @@ namespace Planetwalker.Rendering
             public int River;
             /// <summary>Angular half width (unit sphere).</summary>
             public float HalfWidth;
-            /// <summary>Under lake water: not lifted by the shader.</summary>
-            public bool Submerged;
+            /// <summary>Under lake water: radius of that water surface (object space), never lifted
+            /// above it by the shader; 0 elsewhere.</summary>
+            public float WaterRadius;
+            /// <summary>Lake + 1 whose rendered water the ribbon edges must stay in (part past the
+            /// shoreline crossing), 0 = none.</summary>
+            public int ClampToLake;
+            /// <summary>Mouth flare factor applied to the half width (1 = none).</summary>
+            public float Flare;
         }
         readonly List<Vector3> points = new List<Vector3>();
         readonly List<float> pointAccumulation = new List<float>();
@@ -78,7 +107,8 @@ namespace Planetwalker.Rendering
         readonly List<Vector3> reachPoints = new List<Vector3>();
         readonly List<float> reachAccumulation = new List<float>();
         readonly List<float> reachDistance = new List<float>();
-        readonly List<bool> reachSubmerged = new List<bool>();
+        readonly List<float> reachWater = new List<float>();
+        readonly List<float> reachFlare = new List<float>();
         bool[] hasTributary = new bool[0];
 
         public int LastDisplayedRiverCount { get; private set; }
@@ -113,11 +143,13 @@ namespace Planetwalker.Rendering
             return buffer;
         }
 
+        /// <param name="water">Lake surface built for <paramref name="lakes"/>.Lakes on the same sampler
+        /// (rendered shoreline); built internally when null or stale.</param>
         public void Build(Mesh mesh, RiverNetwork network, PlanetSurfaceSampler sampler, PlanetInstance planet, RiverSettings settings,
-            LakeRiverLayer lakes = null)
+            LakeRiverLayer lakes = null, LakeMeshBuilder water = null)
         {
             var stopwatch = Stopwatch.StartNew();
-            BuildGeometry(network, sampler, planet, settings, lakes);
+            BuildGeometry(network, sampler, planet, settings, lakes, water);
             Upload(mesh, planet.Radius);
             LastMilliseconds = (float)stopwatch.Elapsed.TotalMilliseconds;
         }
@@ -130,8 +162,25 @@ namespace Planetwalker.Rendering
         /// <summary>Per vertex: the unit direction of its ribbon sample (centerline), also its normal.</summary>
         public IReadOnlyList<Vector3> SampleDirections => normals;
 
-        /// <summary>True for vertices of samples under lake water (drawn without lift, under the surface).</summary>
-        public bool IsVertexSubmerged(int vertex) => widths[vertex].y > 0.5f;
+        /// <summary>True for vertices of samples under lake water (never lifted above that water surface).</summary>
+        public bool IsVertexSubmerged(int vertex) => widths[vertex].y > 0f;
+
+        /// <summary>Water surface radius (object space) a vertex is kept under, or 0.</summary>
+        public float GetVertexWaterRadius(int vertex) => widths[vertex].y;
+
+        /// <summary>World half width of a vertex's sample (object units).</summary>
+        public float GetVertexHalfWidth(int vertex) => widths[vertex].x;
+
+        /// <summary>Left vertex of the sample inserted on the rendered shoreline where a ribbon leaves
+        /// an open lake, or -1.</summary>
+        public int GetRibbonStartCrossing(int ribbon) => ribbonStartCrossings[ribbon] < 0 ? -1 : GetRibbonStart(ribbon) + 2 * ribbonStartCrossings[ribbon];
+
+        /// <summary>Left vertex of the sample inserted on the rendered shoreline where a ribbon enters
+        /// a lake, or -1.</summary>
+        public int GetRibbonEndCrossing(int ribbon) => ribbonEndCrossings[ribbon] < 0 ? -1 : GetRibbonStart(ribbon) + 2 * ribbonEndCrossings[ribbon];
+
+        /// <summary>Lake surface used by the last lake-aware build (rendered shoreline), or null.</summary>
+        public LakeMeshBuilder Water { get; private set; }
 
         /// <summary>Number of ribbons (displayed rivers) in the last build.</summary>
         public int RibbonCount => ribbonRivers.Count;
@@ -152,15 +201,27 @@ namespace Planetwalker.Rendering
 
         /// <summary>Computes the ribbon geometry without touching any Unity object (testable).</summary>
         public void BuildGeometry(RiverNetwork network, PlanetSurfaceSampler sampler, PlanetInstance planet, RiverSettings settings,
-            LakeRiverLayer lakes = null)
+            LakeRiverLayer lakes = null, LakeMeshBuilder water = null)
         {
             if (lakes != null && lakes.Network != network)
             {
                 throw new System.ArgumentException("The lake layer was built for another river network.");
             }
+            Water = null;
+            if (lakes != null)
+            {
+                if (water == null || water.BuiltLakes != lakes.Lakes)
+                {
+                    ownWater.BuildGeometry(lakes.Lakes, planet.Radius, sampler);
+                    water = ownWater;
+                }
+                Water = water;
+            }
             vertices.Clear();
             ribbonRivers.Clear();
             ribbonReaches.Clear();
+            ribbonStartCrossings.Clear();
+            ribbonEndCrossings.Clear();
             ribbonStarts.Clear();
             normals.Clear();
             sides.Clear();
@@ -169,6 +230,9 @@ namespace Planetwalker.Rendering
             samples.Clear();
             sampleStarts.Clear();
             unresolvedMouths.Clear();
+            vertexFlare.Clear();
+            markerDirections.Clear();
+            markerKinds.Clear();
             diagnostics = default;
 
             HydrologyResult hydrology = network.Hydrology;
@@ -192,7 +256,7 @@ namespace Planetwalker.Rendering
                 int finalSegmentStart = Resample(network, river, maxStep);
                 if (lakes != null)
                 {
-                    AddReaches(network, lakes, river, sampler, planet, settings, oceanRadius, radius, finalSegmentStart, maxStep,
+                    AddReaches(network, lakes, water, river, sampler, planet, settings, oceanRadius, radius, finalSegmentStart, maxStep,
                         cellSpacing, meshSpacing);
                     continue;
                 }
@@ -208,6 +272,8 @@ namespace Planetwalker.Rendering
                 sampleStarts.Add(samples.Count);
                 ribbonRivers.Add(river);
                 ribbonReaches.Add(-1);
+                ribbonStartCrossings.Add(-1);
+                ribbonEndCrossings.Add(-1);
                 for (int i = 0; i < points.Count; i++)
                 {
                     samples.Add(new Sample
@@ -235,11 +301,15 @@ namespace Planetwalker.Rendering
 
         /// <summary>
         /// Lake-aware ribbons of one river: one ribbon per visible reach of the layer. Reach ends
-        /// come from the topology (which lake is entered / left); the precise cut is where the
-        /// path goes under that lake's water (true terrain below its level).
+        /// come from the topology (which lake is entered / left); the visual cut is the RENDERED
+        /// shoreline of that lake (exact crossing inserted as a sample, short continuation under the
+        /// water, gentle mouth flare). When the displayed mesh shows no water of that lake near the
+        /// reach end, the hydrological shoreline (true terrain) is used and the transition is
+        /// reported as unresolved.
         /// </summary>
-        void AddReaches(RiverNetwork network, LakeRiverLayer layer, int river, PlanetSurfaceSampler sampler, PlanetInstance planet,
-            RiverSettings settings, float oceanRadius, float radius, int finalSegmentStart, float maxStep, float cellSpacing, float meshSpacing)
+        void AddReaches(RiverNetwork network, LakeRiverLayer layer, LakeMeshBuilder water, int river, PlanetSurfaceSampler sampler,
+            PlanetInstance planet, RiverSettings settings, float oceanRadius, float radius, int finalSegmentStart, float maxStep,
+            float cellSpacing, float meshSpacing)
         {
             int first = layer.GetRiverReachStart(river), end = layer.GetRiverReachStart(river + 1);
             if (first == end)
@@ -253,6 +323,7 @@ namespace Planetwalker.Rendering
                 diagnostics.OceanMouths++;
                 ResolveMouth(network, data, sampler, oceanRadius, radius, finalSegmentStart, maxStep, cellSpacing, meshSpacing);
             }
+            var stopwatch = Stopwatch.StartNew();
             LakeSet lakes = layer.Lakes;
             double totalArea = network.Hydrology.Grid.TotalArea;
             for (int r = first; r < end; r++)
@@ -261,97 +332,161 @@ namespace Planetwalker.Rendering
                 reachPoints.Clear();
                 reachAccumulation.Clear();
                 reachDistance.Clear();
-                reachSubmerged.Clear();
+                reachWater.Clear();
+                reachFlare.Clear();
 
                 // Start.
-                int startIndex = FirstPointAtOrAfter(reach.FirstNode);
-                if (reach.Start == ReachStart.Source)
-                {
-                    startIndex = 0;
-                }
-                int emerged = -1;
+                int startIndex = reach.Start == ReachStart.Source ? 0 : FirstPointAtOrAfter(reach.FirstNode);
+                Crossing outlet = default;
+                int hydroEmerged = -1;
                 if (reach.Start == ReachStart.LakeOutlet)
                 {
-                    // Start just under the water, where the path leaves the lake (searched from the
-                    // last lake node to a little past the first dry one: sub-cell shorelines).
                     diagnostics.LakeOutflows++;
-                    int windowStart = FirstPointAtOrAfter(reach.FirstNode - 1);
-                    for (int i = windowStart; i < points.Count && pointParam[i] <= reach.FirstNode + LakeSearchNodes; i++)
+                    outlet = FindOutletCrossing(water, reach);
+                    if (outlet.Found)
                     {
-                        if (!LakeMeshBuilder.IsSubmerged(lakes, planet, reach.StartLake, points[i]))
-                        {
-                            emerged = i;
-                            break;
-                        }
-                    }
-                    if (emerged < 0)
-                    {
-                        diagnostics.LakeOutflowGaps++;
+                        diagnostics.LakeToRiverTransitions++;
+                        outlet.HalfWidth = NominalHalfWidth(network, layer, river, settings, outlet, NoTaperDistance, totalArea);
+                        startIndex = ExtendUnderWater(water, reach.StartLake, outlet, -1, meshSpacing);
                     }
                     else
                     {
-                        startIndex = Mathf.Max(windowStart, emerged - SubmergedEndSamples);
+                        // Fallback: hydrological shoreline, searched from the last lake node to a little
+                        // past the first dry one (sub-cell shorelines), as in V0.1.1D-B.1.
+                        diagnostics.UnresolvedShorelineIntersections++;
+                        AddMarker(points[FirstPointAtOrAfter(reach.FirstNode)], TransitionMarker.Unresolved);
+                        int windowStart = FirstPointAtOrAfter(reach.FirstNode - 1);
+                        for (int i = windowStart; i < points.Count && pointParam[i] <= reach.FirstNode + LakeSearchNodes; i++)
+                        {
+                            if (!LakeMeshBuilder.IsSubmerged(lakes, planet, reach.StartLake, points[i]))
+                            {
+                                hydroEmerged = i;
+                                break;
+                            }
+                        }
+                        if (hydroEmerged < 0)
+                        {
+                            diagnostics.LakeOutflowGaps++;
+                        }
+                        else
+                        {
+                            startIndex = Mathf.Max(windowStart, hydroEmerged - SubmergedEndSamples);
+                        }
                     }
                 }
+                float distanceOffset = reach.Start == ReachStart.Source ? 0f
+                    : reach.Start == ReachStart.Reactivated ? -pointDistance[startIndex] : NoTaperDistance;
 
                 // End.
                 int endIndex = points.Count - 1;
+                Crossing inflow = default;
+                bool hydroInflow = false;
                 if (reach.End == ReachEnd.LakeInflow)
                 {
                     diagnostics.LakeInflows++;
                     endIndex = LastPointAtOrBefore(reach.LastNode + 1);
                     float searchLimit = reach.ConnectorCount > 0 ? reach.LastNode + 1 : reach.LastNode + 1 + LakeSearchNodes;
-                    int submerged = -1;
-                    for (int i = FirstPointAtOrAfter(reach.LastNode); i < points.Count && pointParam[i] <= searchLimit; i++)
+                    inflow = FindInflowCrossing(water, reach, startIndex, searchLimit);
+                    if (inflow.Found)
                     {
-                        if (LakeMeshBuilder.IsSubmerged(lakes, planet, reach.EndLake, points[i]))
-                        {
-                            submerged = i;
-                            break;
-                        }
-                    }
-                    if (submerged >= 0)
-                    {
-                        endIndex = submerged;
-                        for (int i = submerged + 1; i < points.Count && i <= submerged + SubmergedEndSamples; i++)
-                        {
-                            if (!LakeMeshBuilder.IsSubmerged(lakes, planet, reach.EndLake, points[i]))
-                            {
-                                break;
-                            }
-                            endIndex = i;
-                        }
+                        diagnostics.RiverToLakeTransitions++;
+                        inflow.HalfWidth = NominalHalfWidth(network, layer, river, settings, inflow, distanceOffset, totalArea);
+                        endIndex = ExtendUnderWater(water, reach.EndLake, inflow, +1, meshSpacing);
                     }
                     else if (reach.ConnectorCount == 0)
                     {
-                        diagnostics.LakeInflowGaps++;
+                        diagnostics.UnresolvedShorelineIntersections++;
+                        AddMarker(points[Mathf.Clamp(endIndex, 0, points.Count - 1)], TransitionMarker.Unresolved);
+                        hydroInflow = true;
+                        int submerged = -1;
+                        for (int i = FirstPointAtOrAfter(reach.LastNode); i < points.Count && pointParam[i] <= searchLimit; i++)
+                        {
+                            if (LakeMeshBuilder.IsSubmerged(lakes, planet, reach.EndLake, points[i]))
+                            {
+                                submerged = i;
+                                break;
+                            }
+                        }
+                        if (submerged >= 0)
+                        {
+                            endIndex = submerged;
+                            for (int i = submerged + 1; i < points.Count && i <= submerged + SubmergedEndSamples; i++)
+                            {
+                                if (!LakeMeshBuilder.IsSubmerged(lakes, planet, reach.EndLake, points[i]))
+                                {
+                                    break;
+                                }
+                                endIndex = i;
+                            }
+                        }
+                        else
+                        {
+                            diagnostics.LakeInflowGaps++;
+                        }
                     }
                 }
                 endIndex = Mathf.Max(endIndex, startIndex);
 
-                float distanceOffset = reach.Start == ReachStart.Source ? 0f
-                    : reach.Start == ReachStart.Reactivated ? -pointDistance[startIndex] : NoTaperDistance;
+                float outletRadius = reach.StartLake >= 0 ? water.GetWaterRadius(reach.StartLake) : 0f;
+                float inflowRadius = reach.EndLake >= 0 ? water.GetWaterRadius(reach.EndLake) : 0f;
+                int startCrossing = -1, endCrossing = -1;
                 for (int i = startIndex; i <= endIndex; i++)
                 {
-                    double deficit = DeficitAt(network, layer, river, pointParam[i]) / totalArea;
-                    reachPoints.Add(points[i]);
-                    reachAccumulation.Add((float)System.Math.Max(0.0, pointAccumulation[i] - deficit));
-                    reachDistance.Add(pointDistance[i] + distanceOffset);
-                    bool underStart = reach.Start == ReachStart.LakeOutlet && i < emerged;
-                    bool underEnd = reach.End == ReachEnd.LakeInflow && LakeMeshBuilder.IsSubmerged(lakes, planet, reach.EndLake, points[i]);
-                    reachSubmerged.Add(underStart || underEnd);
+                    if (outlet.Found && i == outlet.Index)
+                    {
+                        startCrossing = reachPoints.Count;
+                        AddReachSample(network, layer, river, outlet.Direction, outlet.Accumulation, outlet.Distance, outlet.Param,
+                            distanceOffset, totalArea, outletRadius);
+                    }
+                    if (inflow.Found && i == inflow.Index)
+                    {
+                        endCrossing = reachPoints.Count;
+                        AddReachSample(network, layer, river, inflow.Direction, inflow.Accumulation, inflow.Distance, inflow.Param,
+                            distanceOffset, totalArea, inflowRadius);
+                    }
+                    float waterRadius = 0f;
+                    if (outlet.Found ? i < outlet.Index : reach.Start == ReachStart.LakeOutlet && i < hydroEmerged)
+                    {
+                        waterRadius = outletRadius;
+                    }
+                    if (inflow.Found ? i >= inflow.Index
+                            : hydroInflow && LakeMeshBuilder.IsSubmerged(lakes, planet, reach.EndLake, points[i]))
+                    {
+                        waterRadius = inflowRadius;
+                    }
+                    // Under the water the width is held at its shoreline value: the lake-aware drained
+                    // area changes inside the lake and would otherwise jump at the mouth.
+                    if (outlet.Found && i < outlet.Index)
+                    {
+                        AddReachSample(network, layer, river, points[i], outlet.Accumulation, outlet.Distance, outlet.Param,
+                            distanceOffset, totalArea, waterRadius);
+                    }
+                    else if (inflow.Found && i >= inflow.Index)
+                    {
+                        AddReachSample(network, layer, river, points[i], inflow.Accumulation, inflow.Distance, inflow.Param,
+                            distanceOffset, totalArea, waterRadius);
+                    }
+                    else
+                    {
+                        AddReachSample(network, layer, river, points[i], pointAccumulation[i], pointDistance[i], pointParam[i],
+                            distanceOffset, totalArea, waterRadius);
+                    }
                 }
 
                 // Shore contacts: a reach that touches the water of a lake it neither enters nor
                 // leaves (source on the rim, path cutting a shore cell). Leading samples of a new
-                // source are trimmed; others stay under the water (not lifted), never on top of it.
+                // source are trimmed; others stay under the water (never lifted above it).
                 if (reachPoints.Count > 0)
                 {
                     bool trimming = reach.Start == ReachStart.Source || reach.Start == ReachStart.Reactivated;
                     int trimmed = 0;
                     for (int i = 0; i < reachPoints.Count; i++)
                     {
-                        int contact = SubmergingLake(lakes, planet, reachPoints[i]);
+                        int contact = water.GetLakeUnderWater(reachPoints[i]);
+                        if (contact < 0)
+                        {
+                            contact = SubmergingLake(lakes, planet, reachPoints[i]);
+                        }
                         bool other = contact >= 0 && contact != reach.StartLake && contact != reach.EndLake;
                         if (trimming && other)
                         {
@@ -361,7 +496,7 @@ namespace Planetwalker.Rendering
                         trimming = false;
                         if (other)
                         {
-                            reachSubmerged[i] = true;
+                            reachWater[i] = Mathf.Max(reachWater[i], water.GetWaterRadius(contact));
                             diagnostics.ShoreContactSamples++;
                         }
                     }
@@ -371,72 +506,358 @@ namespace Planetwalker.Rendering
                         reachPoints.RemoveRange(0, trimmed);
                         reachAccumulation.RemoveRange(0, trimmed);
                         reachDistance.RemoveRange(0, trimmed);
-                        reachSubmerged.RemoveRange(0, trimmed);
+                        reachWater.RemoveRange(0, trimmed);
+                        reachFlare.RemoveRange(0, trimmed);
+                        startCrossing = startCrossing >= trimmed ? startCrossing - trimmed : -1;
+                        endCrossing = endCrossing >= trimmed ? endCrossing - trimmed : -1;
                     }
                 }
 
                 // Closed basins: continue along the connector down to the shoreline.
-                if (reach.End == ReachEnd.LakeInflow && reach.ConnectorCount > 0 && !reachSubmerged[reachSubmerged.Count - 1])
+                if (reach.End == ReachEnd.LakeInflow && reach.ConnectorCount > 0 && !inflow.Found && reachPoints.Count > 0
+                    && reachWater[reachWater.Count - 1] <= 0f)
                 {
-                    AppendConnector(network, layer, r, reach, lakes, planet, maxStep);
+                    endCrossing = AppendConnector(network, layer, r, reach, lakes, planet, water, settings, maxStep, meshSpacing);
                 }
                 if (reachPoints.Count < 2)
                 {
                     continue;
                 }
+
+                // Mouth flare towards the rendered shoreline (both ends of the reach).
+                ApplyFlare(settings, startCrossing, -1, meshSpacing);
+                ApplyFlare(settings, endCrossing, +1, meshSpacing);
+
+                // A reach entirely under lake water would only be drawn hidden: not emitted.
+                bool visible = false;
+                for (int i = 0; i < reachPoints.Count && !visible; i++)
+                {
+                    visible = reachWater[i] <= 0f || water.GetLakeUnderWater(reachPoints[i]) < 0;
+                }
+                if (!visible)
+                {
+                    diagnostics.HiddenReachesSkipped++;
+                    continue;
+                }
+
+                if (startCrossing >= 0)
+                {
+                    AddMarker(reachPoints[startCrossing], TransitionMarker.Outlet);
+                }
+                if (endCrossing >= 0)
+                {
+                    AddMarker(reachPoints[endCrossing], TransitionMarker.Inlet);
+                }
                 sampleStarts.Add(samples.Count);
                 ribbonRivers.Add(river);
                 ribbonReaches.Add(r);
+                ribbonStartCrossings.Add(startCrossing);
+                ribbonEndCrossings.Add(endCrossing);
                 for (int i = 0; i < reachPoints.Count; i++)
                 {
+                    int clamp = startCrossing >= 0 && i < startCrossing ? reach.StartLake + 1
+                        : endCrossing >= 0 && i > endCrossing ? reach.EndLake + 1 : 0;
                     samples.Add(new Sample
                     {
                         Direction = reachPoints[i],
                         River = river,
-                        HalfWidth = 0.5f * settings.GetDisplayWidth(reachAccumulation[i], reachDistance[i]),
-                        Submerged = reachSubmerged[i],
+                        HalfWidth = 0.5f * settings.GetDisplayWidth(reachAccumulation[i], reachDistance[i]) * reachFlare[i],
+                        WaterRadius = reachWater[i],
+                        ClampToLake = clamp,
+                        Flare = reachFlare[i],
                     });
-                    diagnostics.SubmergedSamples += reachSubmerged[i] ? 1 : 0;
+                    diagnostics.SubmergedSamples += reachWater[i] > 0f ? 1 : 0;
                 }
+            }
+            diagnostics.TransitionMilliseconds += (float)stopwatch.Elapsed.TotalMilliseconds;
+        }
+
+        /// <summary>A centerline crossing of the rendered shoreline, between two resampled points.</summary>
+        struct Crossing
+        {
+            public bool Found;
+            /// <summary>First resampled point on the far side of the crossing (walking downstream).</summary>
+            public int Index;
+            public Vector3 Direction;
+            public float Accumulation, Distance, Param;
+            /// <summary>Nominal angular half width at the crossing (no flare).</summary>
+            public float HalfWidth;
+        }
+
+        Crossing MakeCrossing(int before, int after, float t, Vector3 direction)
+        {
+            return new Crossing
+            {
+                Found = true,
+                Index = after,
+                Direction = direction,
+                Accumulation = Mathf.Lerp(pointAccumulation[before], pointAccumulation[after], t),
+                Distance = Mathf.Lerp(pointDistance[before], pointDistance[after], t),
+                Param = Mathf.Lerp(pointParam[before], pointParam[after], t),
+            };
+        }
+
+        /// <summary>Parameter t in [0, 1] from <paramref name="inside"/> (under the water) towards
+        /// <paramref name="outside"/> where the rendered shoreline is crossed (bisection).</summary>
+        static float BisectShoreline(LakeMeshBuilder water, int lake, Vector3 inside, Vector3 outside)
+        {
+            float lo = 0f, hi = 1f;
+            for (int i = 0; i < CrossingBisections; i++)
+            {
+                float mid = 0.5f * (lo + hi);
+                if (water.IsUnderWater(lake, Vector3.Lerp(inside, outside, mid).normalized))
+                {
+                    lo = mid;
+                }
+                else
+                {
+                    hi = mid;
+                }
+            }
+            return 0.5f * (lo + hi);
+        }
+
+        /// <summary>Where the path leaves the rendered water of the lake it flows out of.</summary>
+        Crossing FindOutletCrossing(LakeMeshBuilder water, RiverReach reach)
+        {
+            int lake = reach.StartLake;
+            int e = FirstPointAtOrAfter(reach.FirstNode);
+            int emerged = -1;
+            if (water.IsUnderWater(lake, points[e]))
+            {
+                for (int i = e + 1; i < points.Count && pointParam[i] <= reach.FirstNode + LakeSearchNodes; i++)
+                {
+                    if (!water.IsUnderWater(lake, points[i]))
+                    {
+                        emerged = i;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                for (int i = e - 1; i >= 0 && pointParam[i] >= reach.FirstNode - 1 - LakeSearchNodes; i--)
+                {
+                    if (water.IsUnderWater(lake, points[i]))
+                    {
+                        emerged = i + 1;
+                        break;
+                    }
+                }
+            }
+            if (emerged <= 0)
+            {
+                return default;
+            }
+            float t = BisectShoreline(water, lake, points[emerged - 1], points[emerged]);
+            Vector3 direction = Vector3.Lerp(points[emerged - 1], points[emerged], t).normalized;
+            return MakeCrossing(emerged - 1, emerged, t, direction);
+        }
+
+        /// <summary>Where the path enters the rendered water of the lake it flows into.</summary>
+        Crossing FindInflowCrossing(LakeMeshBuilder water, RiverReach reach, int startIndex, float searchLimit)
+        {
+            int lake = reach.EndLake;
+            int from = Mathf.Max(startIndex + 1, FirstPointAtOrAfter(reach.LastNode - 1));
+            int s = -1;
+            for (int i = from; i < points.Count && pointParam[i] <= searchLimit; i++)
+            {
+                if (water.IsUnderWater(lake, points[i]))
+                {
+                    s = i;
+                    break;
+                }
+            }
+            if (s < 0)
+            {
+                return default;
+            }
+            // The rendered water can start before the search window: walk back to the real crossing.
+            while (s - 1 > startIndex && water.IsUnderWater(lake, points[s - 1]))
+            {
+                s--;
+            }
+            if (water.IsUnderWater(lake, points[s - 1]))
+            {
+                return default; // the reach starts under that water: no crossing to draw
+            }
+            float t = BisectShoreline(water, lake, points[s], points[s - 1]);
+            Vector3 direction = Vector3.Lerp(points[s], points[s - 1], t).normalized;
+            return MakeCrossing(s - 1, s, 1f - t, direction);
+        }
+
+        float NominalHalfWidth(RiverNetwork network, LakeRiverLayer layer, int river, RiverSettings settings, Crossing crossing,
+            float distanceOffset, double totalArea)
+        {
+            double deficit = DeficitAt(network, layer, river, crossing.Param) / totalArea;
+            float accumulation = (float)System.Math.Max(0.0, crossing.Accumulation - deficit);
+            return 0.5f * settings.GetDisplayWidth(accumulation, crossing.Distance + distanceOffset);
+        }
+
+        /// <summary>
+        /// Continues past the crossing under the water (<paramref name="step"/> +1 downstream for an
+        /// inflow, -1 upstream for an outflow) over a length scaled by the flared width and the
+        /// render mesh spacing, until both ribbon edges are under the water too. Returns the last
+        /// kept resampled point.
+        /// </summary>
+        int ExtendUnderWater(LakeMeshBuilder water, int lake, Crossing crossing, int step, float meshSpacing)
+        {
+            float sideHalfWidth = crossing.HalfWidth * (1f + MouthFlare);
+            float length = Mathf.Max(SubmergedHalfWidths * sideHalfWidth, SubmergedMeshSpacings * meshSpacing);
+            int k = step > 0 ? crossing.Index : crossing.Index - 1;
+            float travelled = (points[k] - crossing.Direction).magnitude;
+            while (true)
+            {
+                int next = k + step;
+                if (next < 0 || next >= points.Count || travelled >= 4f * length)
+                {
+                    break;
+                }
+                if (travelled >= length && EdgesUnderWater(water, lake, k, sideHalfWidth))
+                {
+                    break;
+                }
+                if (!water.IsUnderWater(lake, points[next]))
+                {
+                    break;
+                }
+                travelled += (points[next] - points[k]).magnitude;
+                k = next;
+            }
+            if (!EdgesUnderWater(water, lake, k, sideHalfWidth))
+            {
+                // Measured before the edges are pulled into the water (AppendRibbon).
+                diagnostics.ExposedTransitionEnds++;
+                AddMarker(points[k], TransitionMarker.Exposed);
+            }
+            return k;
+        }
+
+        bool EdgesUnderWater(LakeMeshBuilder water, int lake, int k, float halfWidth)
+        {
+            Vector3 p = points[k];
+            Vector3 forward = points[Mathf.Min(k + 1, points.Count - 1)] - points[Mathf.Max(k - 1, 0)];
+            Vector3 side = Vector3.Cross(p, forward);
+            if (side.sqrMagnitude < 1e-20f)
+            {
+                return water.IsUnderWater(lake, p);
+            }
+            side.Normalize();
+            return water.IsUnderWater(lake, (p + side * halfWidth).normalized) && water.IsUnderWater(lake, (p - side * halfWidth).normalized);
+        }
+
+        void AddReachSample(RiverNetwork network, LakeRiverLayer layer, int river, Vector3 direction, float accumulation, float distance,
+            float param, float distanceOffset, double totalArea, float waterRadius)
+        {
+            double deficit = DeficitAt(network, layer, river, param) / totalArea;
+            reachPoints.Add(direction);
+            reachAccumulation.Add((float)System.Math.Max(0.0, accumulation - deficit));
+            reachDistance.Add(distance + distanceOffset);
+            reachWater.Add(waterRadius);
+            reachFlare.Add(1f);
+        }
+
+        /// <summary>
+        /// Widens the ribbon smoothly towards a shoreline crossing: 1 + MouthFlare at the crossing and
+        /// under the water, back to 1 over a length scaled by the river width (at least one render
+        /// quad). <paramref name="side"/>: +1 when the dry part is before the crossing (inflow).
+        /// </summary>
+        void ApplyFlare(RiverSettings settings, int crossing, int side, float meshSpacing)
+        {
+            if (crossing < 0 || crossing >= reachPoints.Count)
+            {
+                return;
+            }
+            float nominal = 0.5f * settings.GetDisplayWidth(reachAccumulation[crossing], reachDistance[crossing]);
+            float length = Mathf.Max(FlareHalfWidths * nominal, FlareMeshSpacings * meshSpacing);
+            for (int i = 0; i < reachPoints.Count; i++)
+            {
+                // Distance from the crossing on the dry side (<= 0 on the water side).
+                float d = side > 0 ? reachDistance[crossing] - reachDistance[i] : reachDistance[i] - reachDistance[crossing];
+                float flare = d <= 0f ? 1f + MouthFlare : d < length ? 1f + MouthFlare * (1f - d / length) * (1f - d / length) : 1f;
+                reachFlare[i] = Mathf.Max(reachFlare[i], flare);
             }
         }
 
-        void AppendConnector(RiverNetwork network, LakeRiverLayer layer, int reachIndex, RiverReach reach, LakeSet lakes,
-            PlanetInstance planet, float maxStep)
+        /// <summary>
+        /// Closed basins: follows the connector cells from the reach end down to the rendered water,
+        /// inserts the exact crossing and continues a little under the water. Returns the crossing
+        /// sample index, or -1 when only the hydrological shoreline was found (or none).
+        /// </summary>
+        int AppendConnector(RiverNetwork network, LakeRiverLayer layer, int reachIndex, RiverReach reach, LakeSet lakes,
+            PlanetInstance planet, LakeMeshBuilder water, RiverSettings settings, float maxStep, float meshSpacing)
         {
             HydrologyGrid grid = network.Hydrology.Grid;
             int last = reachPoints.Count - 1;
             float accumulation = reachAccumulation[last];
             float distance = reachDistance[last];
             Vector3 previous = reachPoints[last];
-            int kept = 0;
+            float waterRadius = water.GetWaterRadius(reach.EndLake);
+            float sideHalfWidth = 0.5f * settings.GetDisplayWidth(accumulation, distance) * (1f + MouthFlare);
+            float length = Mathf.Max(SubmergedHalfWidths * sideHalfWidth, SubmergedMeshSpacings * meshSpacing);
+            int crossing = -1;
+            float underTravelled = 0f;
+            int keptHydro = 0;
             for (int c = -1; c < reach.ConnectorCount; c++)
             {
                 Vector3 target = grid.GetCenter(c < 0 ? reach.EntryCell : layer.GetConnectorCell(reachIndex, c));
-                float length = (target - previous).magnitude;
-                if (length < 1e-6f)
+                float segment = (target - previous).magnitude;
+                if (segment < 1e-6f)
                 {
                     continue;
                 }
-                int steps = Mathf.Max(1, Mathf.CeilToInt(length / maxStep));
+                int steps = Mathf.Max(1, Mathf.CeilToInt(segment / maxStep));
                 for (int s = 1; s <= steps; s++)
                 {
                     Vector3 point = Vector3.Lerp(previous, target, s / (float)steps).normalized;
+                    float sampleDistance = distance + segment * s / steps;
+                    bool rendered = water.IsUnderWater(reach.EndLake, point);
+                    if (crossing < 0 && rendered)
+                    {
+                        Vector3 before = reachPoints[reachPoints.Count - 1];
+                        float t = BisectShoreline(water, reach.EndLake, point, before);
+                        crossing = reachPoints.Count;
+                        AddConnectorSample(Vector3.Lerp(point, before, t).normalized, accumulation,
+                            Mathf.Lerp(sampleDistance, reachDistance[reachDistance.Count - 1], t), waterRadius);
+                        diagnostics.RiverToLakeTransitions++;
+                    }
+                    if (crossing >= 0)
+                    {
+                        if (!rendered)
+                        {
+                            diagnostics.ConnectorReaches++;
+                            return crossing;
+                        }
+                        underTravelled += (point - reachPoints[reachPoints.Count - 1]).magnitude;
+                        AddConnectorSample(point, accumulation, sampleDistance, waterRadius);
+                        if (underTravelled >= length)
+                        {
+                            diagnostics.ConnectorReaches++;
+                            return crossing;
+                        }
+                        continue;
+                    }
                     bool submerged = LakeMeshBuilder.IsSubmerged(lakes, planet, reach.EndLake, point);
-                    reachPoints.Add(point);
-                    reachAccumulation.Add(accumulation);
-                    reachDistance.Add(distance + length * s / steps);
-                    reachSubmerged.Add(submerged);
-                    if (submerged && ++kept > SubmergedEndSamples)
+                    AddConnectorSample(point, accumulation, sampleDistance, submerged ? waterRadius : 0f);
+                    if (submerged && ++keptHydro > SubmergedEndSamples)
                     {
                         diagnostics.ConnectorReaches++;
-                        return;
+                        diagnostics.UnresolvedShorelineIntersections++;
+                        AddMarker(point, TransitionMarker.Unresolved);
+                        return -1;
                     }
                 }
-                distance += length;
+                distance += segment;
                 previous = target;
             }
-            if (kept == 0)
+            if (crossing >= 0)
+            {
+                diagnostics.ConnectorReaches++;
+                return crossing;
+            }
+            diagnostics.UnresolvedShorelineIntersections++;
+            AddMarker(reachPoints[reachPoints.Count - 1], TransitionMarker.Unresolved);
+            if (keptHydro == 0)
             {
                 diagnostics.LakeInflowGaps++;
             }
@@ -444,6 +865,16 @@ namespace Planetwalker.Rendering
             {
                 diagnostics.ConnectorReaches++;
             }
+            return -1;
+        }
+
+        void AddConnectorSample(Vector3 point, float accumulation, float distance, float waterRadius)
+        {
+            reachPoints.Add(point);
+            reachAccumulation.Add(accumulation);
+            reachDistance.Add(distance);
+            reachWater.Add(waterRadius);
+            reachFlare.Add(1f);
         }
 
         /// <summary>Lake whose water covers a direction (footprint or shore cell, true terrain below its level), or -1.</summary>
@@ -876,8 +1307,21 @@ namespace Planetwalker.Rendering
 
                 float angularHalfWidth = samples[first + k].HalfWidth;
                 float halfWidth = angularHalfWidth * radius;
-                Vector3 left = sampler.Sample((p + side * angularHalfWidth).normalized);
-                Vector3 right = sampler.Sample((p - side * angularHalfWidth).normalized);
+                Vector3 left, right;
+                int clampLake = samples[first + k].ClampToLake - 1;
+                if (clampLake >= 0 && Water != null && Water.IsUnderWater(clampLake, p))
+                {
+                    // Past the shoreline the ribbon only has to be hidden by the lake: an edge lying on
+                    // dry land beside the lake (oblique shore) would show as a wedge, so it is pulled
+                    // back into the rendered water.
+                    left = EdgeInWater(sampler, clampLake, p, side, angularHalfWidth);
+                    right = EdgeInWater(sampler, clampLake, p, -side, angularHalfWidth);
+                }
+                else
+                {
+                    left = sampler.Sample((p + side * angularHalfWidth).normalized);
+                    right = sampler.Sample((p - side * angularHalfWidth).normalized);
+                }
 
                 // Fold prevention: on a tight bend the inner edge would move backwards and fold
                 // triangles over; collapse it onto its previous vertex instead.
@@ -908,9 +1352,14 @@ namespace Planetwalker.Rendering
                 normals.Add(p);
                 sides.Add(new Vector4(side.x, side.y, side.z, 1f));
                 sides.Add(new Vector4(side.x, side.y, side.z, -1f));
-                float submerged = samples[first + k].Submerged ? 1f : 0f;
-                widths.Add(new Vector2(halfWidth, submerged));
-                widths.Add(new Vector2(halfWidth, submerged));
+                float waterRadius = samples[first + k].WaterRadius;
+                float flare = samples[first + k].Flare > 0f ? samples[first + k].Flare : 1f;
+                // z: mouth color blend, 0 upstream of the flare zone, 1 at the shoreline.
+                float mouth = Mathf.Clamp01((flare - 1f) / MouthFlare);
+                widths.Add(new Vector3(halfWidth, waterRadius, mouth));
+                widths.Add(new Vector3(halfWidth, waterRadius, mouth));
+                vertexFlare.Add(flare);
+                vertexFlare.Add(flare);
 
                 if (k > 0)
                 {
@@ -920,6 +1369,77 @@ namespace Planetwalker.Rendering
                 }
             }
         }
+
+        /// <summary>
+        /// Ribbon edge vertex at most <paramref name="halfWidth"/> from the (submerged) center
+        /// <paramref name="p"/> along <paramref name="side"/>, inside the rendered water of the lake:
+        /// bisection, then the sampled vertex itself is checked (float noise at the boundary) and
+        /// stepped inwards if needed.
+        /// </summary>
+        Vector3 EdgeInWater(PlanetSurfaceSampler sampler, int lake, Vector3 p, Vector3 side, float halfWidth)
+        {
+            float reach = ClampIntoWater(lake, p, side, halfWidth);
+            if (reach >= halfWidth)
+            {
+                return sampler.Sample((p + side * halfWidth).normalized); // full width already in the water
+            }
+            for (int i = 0; i < 8 && reach > 0f; i++)
+            {
+                Vector3 position = sampler.Sample((p + side * reach).normalized);
+                if (Water.IsUnderWater(lake, position.normalized))
+                {
+                    return position;
+                }
+                reach *= 0.75f;
+            }
+            return sampler.Sample(p);
+        }
+
+        /// <summary>Largest offset (at most <paramref name="halfWidth"/>) from <paramref name="p"/> along
+        /// <paramref name="side"/> still under the rendered water of the lake (bisection).</summary>
+        float ClampIntoWater(int lake, Vector3 p, Vector3 side, float halfWidth)
+        {
+            if (Water.IsUnderWater(lake, (p + side * halfWidth).normalized))
+            {
+                return halfWidth;
+            }
+            float lo = 0f, hi = halfWidth;
+            for (int i = 0; i < EdgeClampBisections; i++)
+            {
+                float mid = 0.5f * (lo + hi);
+                if (Water.IsUnderWater(lake, (p + side * mid).normalized))
+                {
+                    lo = mid;
+                }
+                else
+                {
+                    hi = mid;
+                }
+            }
+            diagnostics.ClampedTransitionEdges++;
+            return lo;
+        }
+
+        void AddMarker(Vector3 direction, TransitionMarker kind)
+        {
+            markerDirections.Add(direction);
+            markerKinds.Add(kind);
+        }
+
+        /// <summary>Transition markers of the last build (shoreline debug view).</summary>
+        public int MarkerCount => markerKinds.Count;
+
+        public void GetMarker(int index, out Vector3 direction, out TransitionMarker kind)
+        {
+            direction = markerDirections[index];
+            kind = markerKinds[index];
+        }
+
+        /// <summary>Mouth flare factor of a vertex's sample (1 = none).</summary>
+        public float GetVertexFlare(int vertex) => vertexFlare[vertex];
+
+        /// <summary>Mouth color blend of a vertex (0 upstream .. 1 at the shoreline).</summary>
+        public float GetVertexMouthBlend(int vertex) => widths[vertex].z;
 
         /// <summary>Emits a triangle only if it is valid: finite, non-degenerate, facing outward.</summary>
         void AddTriangle(int a, int b, int c)
@@ -1002,9 +1522,33 @@ namespace Planetwalker.Rendering
         public int LakeInflowGaps, LakeOutflowGaps;
         /// <summary>Inflows continued across a closed basin floor.</summary>
         public int ConnectorReaches;
-        /// <summary>Ribbon samples under lake water (not lifted).</summary>
+        /// <summary>Ribbon samples under lake water (never lifted above it).</summary>
         public int SubmergedSamples;
+        /// <summary>Exact rendered-shoreline crossings inserted where a river enters a lake / leaves an open lake.</summary>
+        public int RiverToLakeTransitions, LakeToRiverTransitions;
+        /// <summary>Lake inflows / outflows whose rendered shoreline was not found near the reach end
+        /// (lake not shown by the displayed mesh there): the hydrological shoreline is used instead.</summary>
+        public int UnresolvedShorelineIntersections;
+        /// <summary>Transitions whose under-water end still has a ribbon edge outside the water (narrow inlet).</summary>
+        public int ExposedTransitionEnds;
+        /// <summary>Time spent in the lake-aware reach construction (transitions included).</summary>
+        public float TransitionMilliseconds;
+        /// <summary>Ribbon edges past a shoreline crossing pulled back into the rendered water (oblique shores).</summary>
+        public int ClampedTransitionEdges;
+        /// <summary>Reaches lying entirely under lake water (nothing visible): not emitted.</summary>
+        public int HiddenReachesSkipped;
         /// <summary>Samples touching a lake the reach neither enters nor leaves (trimmed at a source, else under water).</summary>
         public int ShoreContactSamples;
+    }
+
+    /// <summary>Kind of a lake transition marker (shoreline debug view).</summary>
+    public enum TransitionMarker : byte
+    {
+        Inlet,
+        Outlet,
+        /// <summary>No rendered shoreline found near the reach end (hydrological fallback).</summary>
+        Unresolved,
+        /// <summary>Under-water end whose edges were outside the water before clamping.</summary>
+        Exposed,
     }
 }

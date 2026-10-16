@@ -37,6 +37,18 @@ namespace Planetwalker.Rendering
             public LakeRiverLayer LakeLayer;
             /// <summary>Deepest lake of the planet (depth view scale).</summary>
             public float MaxLakeDepth;
+            /// <summary>Lake surface built on this terrain mesh (shoreline view), or null.</summary>
+            public LakeMeshBuilder LakeWater;
+            /// <summary>Required by the climate views.</summary>
+            public ClimateResult Climate;
+            /// <summary>Winds view: color the heading instead of a neutral speed background.</summary>
+            public bool WindDirectionColors;
+            /// <summary>Required by the biome views.</summary>
+            public BiomeResult Biomes;
+            /// <summary>Natural Planet surface (artistic view), or null for the classic elevation palette.</summary>
+            public NaturalSurface Natural;
+            /// <summary>Required by the cloud views.</summary>
+            public CloudDebugData Clouds;
 
             public ColorContext(PlanetDebugView view, HydrologyResult hydrology = null, float riverThreshold = 0f,
                 RiverNetwork rivers = null, RiverRibbonBuilder ribbons = null)
@@ -49,6 +61,12 @@ namespace Planetwalker.Rendering
                 Lakes = null;
                 LakeLayer = null;
                 MaxLakeDepth = 0f;
+                LakeWater = null;
+                Climate = null;
+                WindDirectionColors = false;
+                Biomes = null;
+                Natural = null;
+                Clouds = null;
             }
 
             public ColorContext WithLakes(LakeSet lakes, LakeRiverLayer layer)
@@ -105,7 +123,7 @@ namespace Planetwalker.Rendering
 
                     vertices[i] = direction * vertexRadius;
                     normals[i] = normal;
-                    Color color = VertexColor(context, planet, ramp, direction, elevation, normal, resolution);
+                    Color color = VertexColor(context, planet, ramp, direction, elevation, normal, resolution, face, x, y);
                     colors[i] = linear ? color.linear : color;
                     maxRadius = Mathf.Max(maxRadius, vertexRadius);
                 }
@@ -150,7 +168,7 @@ namespace Planetwalker.Rendering
                     int i = x + y * edge;
                     Vector3 direction = CubeSphereGenerator.GetSphereDirection(face, x, y, resolution);
                     float elevation = meshVertices[i].magnitude * inverseRadius - 1f;
-                    Color color = VertexColor(context, planet, ramp, direction, elevation, meshNormals[i], resolution);
+                    Color color = VertexColor(context, planet, ramp, direction, elevation, meshNormals[i], resolution, face, x, y);
                     colors[i] = linear ? color.linear : color;
                 }
             }
@@ -161,14 +179,17 @@ namespace Planetwalker.Rendering
         static readonly Color DebugCenterlineColor = new Color(0.95f, 0.2f, 0.12f);
 
         static Color VertexColor(ColorContext context, PlanetInstance planet, PlanetColorRamp ramp, Vector3 direction,
-            float elevation, Vector3 normal, int meshResolution)
+            float elevation, Vector3 normal, int meshResolution, int face, int x, int y)
         {
             float elevationAboveSea = elevation - planet.SeaLevel;
             PlanetHeightGenerator height = planet.Height;
             switch (context.View)
             {
                 case PlanetDebugView.None:
-                    return ramp.Evaluate(elevationAboveSea, 1f - Vector3.Dot(normal, direction));
+                    // Natural Planet on land; the ocean floor keeps the elevation palette (seen through the ocean).
+                    return context.Natural != null && elevationAboveSea > 0f
+                        ? context.Natural.Evaluate(direction, elevation)
+                        : ramp.Evaluate(elevationAboveSea, 1f - Vector3.Dot(normal, direction));
                 case PlanetDebugView.ContinentalMask:
                 {
                     float gray = Mathf.Lerp(0.12f, 1f, height.GetContinentalMask(direction));
@@ -189,6 +210,19 @@ namespace Planetwalker.Rendering
                     Color background = elevationAboveSea <= 0f ? DebugOceanColor : new Color(gray, gray, gray);
                     return Color.Lerp(background, DebugCenterlineColor, height.Mountains.GetCenterlineMask(direction));
                 }
+            }
+
+            if (PlanetDebugViews.IsCloud(context.View))
+            {
+                return CloudDebugColors.Evaluate(context.Clouds, context.View, direction, elevationAboveSea > 0f);
+            }
+            if (PlanetDebugViews.IsBiome(context.View))
+            {
+                return context.Biomes != null ? BiomeDebugColors.Evaluate(context.Biomes, context.View, direction, elevation) : Color.magenta;
+            }
+            if (PlanetDebugViews.IsClimate(context.View))
+            {
+                return context.Climate != null ? ClimateDebugColors.Evaluate(context.Climate, context.View, direction, elevation, context.WindDirectionColors) : Color.magenta;
             }
 
             HydrologyResult hydrology = context.Hydrology;
@@ -231,6 +265,13 @@ namespace Planetwalker.Rendering
                     return LakeDebugColors.Classification(context.Lakes, cell, terrain, dilate);
                 case PlanetDebugView.LakeConnectivity:
                     return context.LakeLayer != null ? LakeDebugColors.Connectivity(context.LakeLayer, cell, terrain, dilate) : Color.magenta;
+                case PlanetDebugView.LakeShoreline:
+                {
+                    // Flags of this render vertex in the lake surface built on this very mesh.
+                    ShorelineFlags flags = context.LakeWater != null && context.LakeWater.BuiltResolution == meshResolution
+                        ? context.LakeWater.GetVertexFlags(face, x, y) : ShorelineFlags.None;
+                    return LakeDebugColors.Shoreline(context.Lakes, cell, terrain, flags);
+                }
                 default:
                     return Color.magenta;
             }

@@ -15,13 +15,14 @@ namespace Planetwalker.Rendering
     /// </summary>
     [ExecuteAlways]
     [DisallowMultipleComponent]
-    public sealed class PlanetVisualController : MonoBehaviour
+    public sealed partial class PlanetVisualController : MonoBehaviour
     {
         public const string TerrainShaderName = "Planetwalker/PlanetTerrain";
         public const string OceanShaderName = "Planetwalker/PlanetOcean";
         public const string DebugShaderName = "Planetwalker/PlanetDebugUnlit";
         public const string RiverShaderName = "Planetwalker/PlanetRiver";
         public const string LakeShaderName = "Planetwalker/PlanetLake";
+        public const string AtmosphereShaderName = "Planetwalker/PlanetAtmosphere";
 
         [SerializeField] Material terrainMaterial;
         [SerializeField] Material oceanMaterial;
@@ -49,6 +50,24 @@ namespace Planetwalker.Rendering
 
         [Tooltip("Lake selection and display (V0.1.1D-B.1). Lakes are computed on demand only.")]
         [SerializeField] LakeSettings lakes = new LakeSettings();
+
+        [Tooltip("Climate analysis (V0.1.1E-A). Computed on demand only, when a climate view is shown.")]
+        [SerializeField] ClimateSettings climate = new ClimateSettings();
+
+        [Tooltip("Climate winds view: color the wind heading (compass) instead of a neutral speed background.")]
+        [SerializeField] bool climateWindDirectionColors;
+
+        [Tooltip("Biome classification (V0.1.1E-B.1). Computed on demand: biome views and the Natural Planet.")]
+        [SerializeField] BiomeSettings biomes = new BiomeSettings();
+
+        [Tooltip("Natural Planet appearance (V0.1.2A): the default view's colors. Artistic only.")]
+        [SerializeField] NaturalSurfaceSettings surface = new NaturalSurfaceSettings();
+
+        [Tooltip("Oceans and atmosphere appearance (V0.1.2B). Rendering only.")]
+        [SerializeField] OceanAtmosphereSettings oceanAtmosphere = new OceanAtmosphereSettings();
+
+        [Tooltip("Atmosphere shell material (created at runtime if empty).")]
+        [SerializeField] Material atmosphereMaterial;
 
         readonly MeshFilter[] faceFilters = new MeshFilter[CubeSphereGenerator.FaceCount];
         readonly Mesh[] faceMeshes = new Mesh[CubeSphereGenerator.FaceCount];
@@ -87,10 +106,31 @@ namespace Planetwalker.Rendering
         MaterialPropertyBlock lakeProperties;
         LakeSet builtLakeSet;
         int builtLakeTerrainVersion = -1;
+        LakeSet lakeGeometrySet;
+        int lakeGeometryTerrainVersion = -1;
+        (int, int, int) shorelineViewKey = (-1, -1, -1);
         LakeSet notifiedLakes;
         LakeSet renderedLakes;
         LakeRiverLayer renderedLakeLayer;
         PlanetInstance contextPlanet;
+
+        // Climate: data (cache) and representation (vertex colors, wind arrows).
+        readonly ClimateCache climateCache = new ClimateCache();
+        readonly ClimateWindArrows windArrows = new ClimateWindArrows();
+        Mesh windArrowMesh;
+        ClimateResult builtArrowClimate;
+        int builtArrowTerrainVersion = -1;
+        ClimateResult notifiedClimate;
+        bool renderedWindDirectionColors;
+
+        // Biomes: data only (cache); shown through vertex colors.
+        readonly BiomeCache biomeCache = new BiomeCache();
+        BiomeResult notifiedBiomes;
+
+        // Natural Planet: terrain slope field (per terrain) and the color sampler (per data + settings).
+        readonly TerrainSlopeCache slopeCache = new TerrainSlopeCache();
+        NaturalSurface naturalSurface;
+        bool renderedNatural;
         Func<Vector3, float> mountainInfluence;
 
         /// <summary>Everything the ribbon geometry depends on (color / pixel width excluded).</summary>
@@ -194,7 +234,7 @@ namespace Planetwalker.Rendering
         /// <summary>Number of lake-aware river layer builds.</summary>
         public int LakeLayerBuildCount { get; private set; }
 
-        /// <summary>Number of lake water mesh builds.</summary>
+        /// <summary>Number of lake water geometry builds (water mesh and rendered shoreline used by the ribbons).</summary>
         public int LakeMeshBuildCount { get; private set; }
 
         /// <summary>True when lake water is drawn on the artistic view.</summary>
@@ -204,6 +244,55 @@ namespace Planetwalker.Rendering
 
         /// <summary>Raised when the lake set or the lake mesh changes.</summary>
         public event Action<LakeSet> LakesUpdated;
+
+        /// <summary>Climate settings. Changes are applied on the next frame (Play mode) or the next
+        /// <see cref="Render"/> / <see cref="RefreshColors"/>, and only while a climate view is shown.</summary>
+        public ClimateSettings Climate => climate;
+
+        /// <summary>Winds view: heading colors instead of the neutral background (display only).</summary>
+        public bool ClimateWindDirectionColors
+        {
+            get => climateWindDirectionColors;
+            set => climateWindDirectionColors = value;
+        }
+
+        /// <summary>Climate of the current planet, or null if no climate view was shown yet.</summary>
+        public ClimateResult CurrentClimate { get; private set; }
+
+        public ClimateCache ClimateCache => climateCache;
+
+        /// <summary>Wind arrows of the winds view (null until first shown).</summary>
+        public Mesh WindArrowMesh => windArrowMesh;
+
+        /// <summary>Raised when a new climate result becomes current.</summary>
+        public event Action<ClimateResult> ClimateUpdated;
+
+        /// <summary>Biome settings. Changes are applied on the next frame (Play mode) or the next
+        /// <see cref="Render"/> / <see cref="RefreshColors"/>, and only while a biome view is shown.</summary>
+        public BiomeSettings Biomes => biomes;
+
+        /// <summary>Biomes of the current climate, or null if no biome view was shown yet.</summary>
+        public BiomeResult CurrentBiomes { get; private set; }
+
+        public BiomeCache BiomeCache => biomeCache;
+
+        /// <summary>Raised when a new biome result becomes current.</summary>
+        public event Action<BiomeResult> BiomesUpdated;
+
+        /// <summary>Natural Planet settings (artistic). Changes recolor the planet on the next frame (Play
+        /// mode) or the next <see cref="Render"/> / <see cref="RefreshColors"/>; no data is recomputed.</summary>
+        public NaturalSurfaceSettings Surface => surface;
+
+        /// <summary>Color sampler of the current Natural Planet, or null.</summary>
+        public NaturalSurface CurrentNaturalSurface => naturalSurface;
+
+        public TerrainSlopeCache SlopeCache => slopeCache;
+
+        /// <summary>Number of Natural Planet sampler builds (data or artistic settings changed).</summary>
+        public int NaturalSurfaceBuildCount { get; private set; }
+
+        /// <summary>True when the default view shows the Natural Planet (not a debug view, natural surface on).</summary>
+        public bool NaturalPlanetShown => debugView == PlanetDebugView.None && surface.enabled;
 
         /// <summary>Assigns shared material assets (used by the editor setup utility).</summary>
         public void SetMaterials(Material terrain, Material ocean, Material debug = null, Material river = null, Material lake = null)
@@ -242,9 +331,11 @@ namespace Planetwalker.Rendering
             oceanTransform.localScale = Vector3.one * oceanRadius;
             BoundingRadius = Mathf.Max(maxRadius, oceanRadius);
             terrainVersion++;
+            UpdateOceanBathymetry();
             ApplyViewState();
             UpdateLakes();
             UpdateRivers();
+            UpdateClimateArrows();
         }
 
         /// <summary>
@@ -265,6 +356,7 @@ namespace Planetwalker.Rendering
             ApplyViewState();
             UpdateLakes();
             UpdateRivers();
+            UpdateClimateArrows();
         }
 
         void Update()
@@ -277,12 +369,24 @@ namespace Planetwalker.Rendering
             bool hydrologyView = PlanetDebugViews.NeedsHydrology(debugView);
             if (debugView != renderedDebugView
                 || (hydrologyView && (hydrology.riverNetworkThreshold != renderedRiverThreshold
-                    || hydrology.resolution != renderedHydrologyResolution)))
+                    || hydrology.resolution != renderedHydrologyResolution))
+                || ((PlanetDebugViews.IsClimate(debugView) || PlanetDebugViews.IsBiome(debugView)) && !climateCache.IsCurrent(Planet, climate))
+                || (PlanetDebugViews.IsBiome(debugView) && !biomeCache.IsCurrent(climateCache.Current, biomes))
+                || (debugView == PlanetDebugView.None && NaturalSurfaceStale())
+                || CloudDebugStale()
+                || (debugView == PlanetDebugView.ClimateWinds && climateWindDirectionColors != renderedWindDirectionColors))
             {
                 RefreshColors();
             }
             else
             {
+                // Rendering-only settings: material properties (and the ocean depth data when needed).
+                if (OceanAtmosphereStale())
+                {
+                    UpdateOceanBathymetry();
+                    ApplyOceanAtmosphere();
+                }
+                AdvanceCloudTime();
                 // Cheap when nothing changed: only cache keys are compared.
                 UpdateLakes();
                 UpdateRivers();
@@ -291,7 +395,10 @@ namespace Planetwalker.Rendering
 
         void LateUpdate()
         {
+            DrawAtmosphere();
+            DrawClouds();
             DrawLakes();
+            DrawWindArrows();
             if (!RiversVisible || riverMesh == null || riverMesh.vertexCount == 0)
             {
                 return;
@@ -303,6 +410,7 @@ namespace Planetwalker.Rendering
             riverProperties.SetFloat("_MinLift", Planet.Radius * 0.0002f);
             riverProperties.SetFloat("_LiftPerDistance", 0.0004f);
             riverProperties.SetFloat("_OceanRadius", Planet.OceanRadius);
+            riverProperties.SetColor("_MouthColor", MouthColor());
             var renderParams = new RenderParams(ResolveRiverMaterial())
             {
                 matProps = riverProperties,
@@ -312,6 +420,110 @@ namespace Planetwalker.Rendering
                 worldBounds = new Bounds(transform.position, Vector3.one * (BoundingRadius * 2.4f * transform.lossyScale.x)),
             };
             Graphics.RenderMesh(renderParams, riverMesh, 0, transform.localToWorldMatrix);
+        }
+
+        /// <summary>
+        /// Color river mouths blend towards: the lake's shallow water tinted a little towards the deep
+        /// lake color (both from the lake material / settings), so rivers and lakes share one tint.
+        /// </summary>
+        Color MouthColor()
+        {
+            Material lake = ResolveLakeMaterial();
+            Color shallow = lake.HasProperty("_ShallowColor") ? lake.GetColor("_ShallowColor") : lakes.color;
+            return Color.Lerp(shallow, lakes.color, 0.35f);
+        }
+
+        ClimateResult EnsureClimate()
+        {
+            ClimateResult result = climateCache.Get(Planet, climate);
+            CurrentClimate = result;
+            if (result != notifiedClimate)
+            {
+                notifiedClimate = result;
+                ClimateUpdated?.Invoke(result);
+            }
+            return result;
+        }
+
+        /// <summary>The Natural Planet colors no longer match their settings or data (cheap checks).</summary>
+        bool NaturalSurfaceStale()
+        {
+            if (surface.enabled != renderedNatural)
+            {
+                return true;
+            }
+            if (!surface.enabled)
+            {
+                return false;
+            }
+            surface.Sanitize();
+            return naturalSurface == null || !naturalSurface.Settings.AppearanceEquals(surface) || !climateCache.IsCurrent(Planet, climate)
+                || !biomeCache.IsCurrent(climateCache.Current, biomes);
+        }
+
+        /// <summary>
+        /// Natural Planet sampler: climate and biomes (cached), the terrain slope field (cached per terrain),
+        /// rebuilt only when one of them or the artistic settings change.
+        /// </summary>
+        NaturalSurface EnsureNaturalSurface()
+        {
+            BiomeResult result = EnsureBiomes();
+            TerrainSlopeField slope = slopeCache.Get(Planet);
+            surface.Sanitize();
+            if (naturalSurface == null || naturalSurface.BiomeData != result || naturalSurface.SlopeField != slope
+                || !naturalSurface.Settings.AppearanceEquals(surface) || naturalSurface.Seed != Planet.Definition.seed)
+            {
+                naturalSurface = new NaturalSurface(result, slope, surface, Planet.Definition.seed);
+                NaturalSurfaceBuildCount++;
+            }
+            return naturalSurface;
+        }
+
+        BiomeResult EnsureBiomes()
+        {
+            BiomeResult result = biomeCache.Get(EnsureClimate(), biomes);
+            CurrentBiomes = result;
+            if (result != notifiedBiomes)
+            {
+                notifiedBiomes = result;
+                BiomesUpdated?.Invoke(result);
+            }
+            return result;
+        }
+
+        /// <summary>Wind arrows: rebuilt only for a new climate result or terrain mesh, in the winds view.</summary>
+        void UpdateClimateArrows()
+        {
+            if (debugView != PlanetDebugView.ClimateWinds || Planet == null || faceMeshes[0] == null)
+            {
+                return;
+            }
+            ClimateResult result = EnsureClimate();
+            if (result == builtArrowClimate && builtArrowTerrainVersion == terrainVersion)
+            {
+                return;
+            }
+            EnsureSurfaceSampler();
+            windArrowMesh ??= new Mesh { hideFlags = HideFlags.DontSave };
+            windArrows.Build(windArrowMesh, result, surfaceSampler, Planet.Radius);
+            builtArrowClimate = result;
+            builtArrowTerrainVersion = terrainVersion;
+        }
+
+        void DrawWindArrows()
+        {
+            if (debugView != PlanetDebugView.ClimateWinds || windArrowMesh == null || windArrowMesh.vertexCount == 0 || Planet == null)
+            {
+                return;
+            }
+            var renderParams = new RenderParams(ResolveDebugMaterial())
+            {
+                layer = gameObject.layer,
+                shadowCastingMode = ShadowCastingMode.Off,
+                receiveShadows = false,
+                worldBounds = new Bounds(transform.position, Vector3.one * (BoundingRadius * 2.4f * transform.lossyScale.x)),
+            };
+            Graphics.RenderMesh(renderParams, windArrowMesh, 0, transform.localToWorldMatrix);
         }
 
         HydrologyResult EnsureHydrology()
@@ -327,7 +539,7 @@ namespace Planetwalker.Rendering
         }
 
         bool RiversNeeded => (debugView == PlanetDebugView.None && rivers.showRivers) || debugView == PlanetDebugView.RiverNetwork
-            || debugView == PlanetDebugView.LakeConnectivity;
+            || debugView == PlanetDebugView.LakeConnectivity || debugView == PlanetDebugView.LakeShoreline;
 
         /// <summary>Lake data is computed only for the lake views or when lakes are shown.</summary>
         bool LakesNeeded => PlanetDebugViews.IsLake(debugView)
@@ -375,15 +587,15 @@ namespace Planetwalker.Rendering
             bool changed = false;
             if (LakesVisible && (set != builtLakeSet || builtLakeTerrainVersion != terrainVersion))
             {
-                EnsureSurfaceSampler();
+                EnsureLakeGeometry(set);
                 lakeMesh ??= new Mesh { hideFlags = HideFlags.DontSave };
-                lakeMeshBuilder.Build(lakeMesh, set, Planet, surfaceSampler);
+                lakeMeshBuilder.Upload(lakeMesh, Planet.Radius);
                 builtLakeSet = set;
                 builtLakeTerrainVersion = terrainVersion;
-                LakeMeshBuildCount++;
                 changed = true;
             }
-            if (PlanetDebugViews.IsLake(debugView) && set != renderedLakes && debugView != PlanetDebugView.LakeConnectivity)
+            if (PlanetDebugViews.IsLake(debugView) && set != renderedLakes && debugView != PlanetDebugView.LakeConnectivity
+                && debugView != PlanetDebugView.LakeShoreline)
             {
                 // Selection settings changed while a lake view is shown: recolor only.
                 RecolorAll();
@@ -393,6 +605,41 @@ namespace Planetwalker.Rendering
                 notifiedLakes = set;
                 LakesUpdated?.Invoke(set);
             }
+        }
+
+        /// <summary>
+        /// Lake water geometry on the current terrain mesh: rebuilt only for a new lake selection or a
+        /// new terrain mesh, shared by the water mesh and the lake-aware ribbons (rendered shoreline).
+        /// </summary>
+        void EnsureLakeGeometry(LakeSet set)
+        {
+            if (set == lakeGeometrySet && lakeGeometryTerrainVersion == terrainVersion)
+            {
+                return;
+            }
+            EnsureSurfaceSampler();
+            lakeMeshBuilder.BuildGeometry(set, Planet, surfaceSampler);
+            lakeGeometrySet = set;
+            lakeGeometryTerrainVersion = terrainVersion;
+            LakeMeshBuildCount++;
+        }
+
+        /// <summary>
+        /// Shoreline view: recolors the terrain from the lake surface flags and the ribbon transition
+        /// markers, only when the water geometry or the ribbons changed (never per frame).
+        /// </summary>
+        void RefreshShorelineView(LakeSet set)
+        {
+            EnsureLakeGeometry(set);
+            RiverRibbonBuilder ribbons = RiversVisible && builtRibbon.Lakes != null ? ribbonBuilder : null;
+            var key = (LakeMeshBuildCount, ribbons != null ? RiverRibbonBuildCount : -1, terrainVersion);
+            if (key == shorelineViewKey && renderedLakes == set)
+            {
+                return;
+            }
+            shorelineViewKey = key;
+            lakeMeshBuilder.MarkTransitions(ribbons);
+            RecolorAll();
         }
 
         void EnsureSurfaceSampler()
@@ -459,10 +706,10 @@ namespace Planetwalker.Rendering
             // Ribbons are also drawn over the river network and lake connectivity debug views, so
             // that topology markers and the actual geometry can be checked together.
             RiversVisible = rivers.showRivers && (debugView == PlanetDebugView.None || debugView == PlanetDebugView.RiverNetwork
-                || debugView == PlanetDebugView.LakeConnectivity);
+                || debugView == PlanetDebugView.LakeConnectivity || debugView == PlanetDebugView.LakeShoreline);
             // Lake-aware ribbons whenever lakes are shown (or inspected in the connectivity view).
             LakeRiverLayer layer = null;
-            if (lakes.showLakes || debugView == PlanetDebugView.LakeConnectivity)
+            if (lakes.showLakes || debugView == PlanetDebugView.LakeConnectivity || debugView == PlanetDebugView.LakeShoreline)
             {
                 layer = EnsureLakeLayer(network, EnsureLakes());
                 if (debugView == PlanetDebugView.LakeConnectivity && layer != renderedLakeLayer)
@@ -492,8 +739,12 @@ namespace Planetwalker.Rendering
                 if (!key.Equals(builtRibbon))
                 {
                     EnsureSurfaceSampler();
+                    if (layer != null)
+                    {
+                        EnsureLakeGeometry(layer.Lakes);
+                    }
                     riverMesh ??= new Mesh { hideFlags = HideFlags.DontSave };
-                    ribbonBuilder.Build(riverMesh, network, surfaceSampler, Planet, rivers, layer);
+                    ribbonBuilder.Build(riverMesh, network, surfaceSampler, Planet, rivers, layer, layer != null ? lakeMeshBuilder : null);
                     builtRibbon = key;
                     RiverRibbonBuildCount++;
                     changed = true;
@@ -508,6 +759,10 @@ namespace Planetwalker.Rendering
                         }
                     }
                 }
+            }
+            if (debugView == PlanetDebugView.LakeShoreline && layer != null)
+            {
+                RefreshShorelineView(layer.Lakes);
             }
             if (changed || network != notifiedRivers || riverCache.BuildCount != notifiedRiverBuild || riverCache.PathBuildCount != notifiedPathBuild)
             {
@@ -532,6 +787,18 @@ namespace Planetwalker.Rendering
             {
                 EnsureHydrology();
             }
+            else if (PlanetDebugViews.IsClimate(debugView))
+            {
+                EnsureClimate();
+            }
+            else if (PlanetDebugViews.IsBiome(debugView))
+            {
+                EnsureBiomes();
+            }
+            else if (debugView == PlanetDebugView.None && surface.enabled)
+            {
+                EnsureNaturalSurface();
+            }
             else if (PlanetDebugViews.IsLake(debugView))
             {
                 set = EnsureLakes();
@@ -542,8 +809,32 @@ namespace Planetwalker.Rendering
             }
             renderedLakes = set;
             renderedLakeLayer = layer;
-            return new PlanetMeshBuilder.ColorContext(debugView, CurrentHydrology, hydrology.riverNetworkThreshold, network,
-                RiversVisible ? ribbonBuilder : null).WithLakes(set, layer);
+            PlanetMeshBuilder.ColorContext context = new PlanetMeshBuilder.ColorContext(debugView, CurrentHydrology,
+                hydrology.riverNetworkThreshold, network, RiversVisible ? ribbonBuilder : null).WithLakes(set, layer);
+            if (debugView == PlanetDebugView.LakeShoreline && set != null && set == lakeGeometrySet && lakeGeometryTerrainVersion == terrainVersion)
+            {
+                context.LakeWater = lakeMeshBuilder;
+            }
+            if (PlanetDebugViews.IsClimate(debugView))
+            {
+                context.Climate = CurrentClimate;
+                context.WindDirectionColors = climateWindDirectionColors;
+            }
+            renderedWindDirectionColors = climateWindDirectionColors;
+            if (PlanetDebugViews.IsBiome(debugView))
+            {
+                context.Biomes = CurrentBiomes;
+            }
+            if (debugView == PlanetDebugView.None && surface.enabled)
+            {
+                context.Natural = naturalSurface;
+            }
+            if (PlanetDebugViews.IsCloud(debugView))
+            {
+                context.Clouds = CloudDebug();
+            }
+            renderedNatural = surface.enabled;
+            return context;
         }
 
         void ApplyViewState()
@@ -559,6 +850,7 @@ namespace Planetwalker.Rendering
             }
             oceanTransform.gameObject.SetActive(debugView == PlanetDebugView.None);
             renderedDebugView = debugView;
+            ApplyOceanAtmosphere();
             renderedRiverThreshold = hydrology.riverNetworkThreshold;
             renderedHydrologyResolution = hydrology.resolution;
         }
@@ -579,9 +871,12 @@ namespace Planetwalker.Rendering
             if (oceanTransform == null)
             {
                 oceanMesh = new Mesh { hideFlags = HideFlags.DontSave };
-                PlanetMeshBuilder.BuildUnitSphere(oceanMesh, oceanResolution);
+                PlanetMeshBuilder.BuildUnitSphere(oceanMesh, OceanMeshResolution);
+                builtOceanLayer = null;
                 oceanTransform = CreateChild("Ocean", oceanMesh, ResolveOceanMaterial()).transform;
             }
+            EnsureAtmosphereResources();
+            EnsureCloudResources();
         }
 
         MeshFilter CreateChild(string objectName, Mesh mesh, Material material)
@@ -698,6 +993,7 @@ namespace Planetwalker.Rendering
                 DestroySafe(oceanTransform.gameObject);
             }
             DestroySafe(oceanMesh);
+            DestroyOceanAtmosphere();
             DestroySafe(ownedTerrainMaterial);
             DestroySafe(ownedOceanMaterial);
             DestroySafe(ownedDebugMaterial);
@@ -707,6 +1003,17 @@ namespace Planetwalker.Rendering
             DestroySafe(ownedLakeMaterial);
             DestroySafe(lakeMesh);
             lakeMesh = null;
+            DestroySafe(windArrowMesh);
+            windArrowMesh = null;
+            builtArrowClimate = null;
+            climateCache.Clear();
+            CurrentClimate = null;
+            notifiedClimate = null;
+            biomeCache.Clear();
+            CurrentBiomes = null;
+            notifiedBiomes = null;
+            slopeCache.Clear();
+            naturalSurface = null;
             hydrologyCache.Clear();
             riverCache.Clear();
             lakeCache.Clear();
@@ -715,6 +1022,7 @@ namespace Planetwalker.Rendering
             CurrentLakes = null;
             CurrentLakeLayer = null;
             builtLakeSet = null;
+            lakeGeometrySet = null;
             RiversVisible = false;
             LakesVisible = false;
             oceanTransform = null;

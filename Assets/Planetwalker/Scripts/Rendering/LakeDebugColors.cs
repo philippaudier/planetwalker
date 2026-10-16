@@ -25,6 +25,50 @@ namespace Planetwalker.Rendering
         static readonly Color InactiveRiverColor = new Color(0.55f, 0.12f, 0.12f);
         static readonly Color ConnectorColor = new Color(0.2f, 0.95f, 0.95f);
 
+        static readonly Color ShoreWaterColor = new Color(0.15f, 0.4f, 0.95f);
+        static readonly Color FragmentColor = new Color(0.1f, 0.75f, 0.7f);
+        static readonly Color ShoreLineColor = new Color(1f, 1f, 1f);
+        static readonly Color BasinCutColor = new Color(1f, 0.55f, 0.05f);
+        static readonly Color RejectedColor = new Color(0.6f, 0.25f, 0.85f);
+        static readonly Color DroppedColor = new Color(1f, 0.5f, 0.75f);
+        static readonly Color ProblemColor = new Color(1f, 1f, 0.1f);
+        static readonly Color FootprintBoundaryColor = new Color(0.05f, 0.45f, 0.5f);
+        static readonly Color UnresolvedColor = new Color(1f, 0.1f, 0.1f);
+        static readonly Color ExposedColor = new Color(1f, 0.35f, 0.2f);
+
+        /// <summary>
+        /// Shoreline view: measured flags of the lake surface build and of the ribbon transitions on a
+        /// render vertex (markers first, then problems, cuts, shoreline, rejected / dropped water,
+        /// water), else the lake footprint boundary cells, else gray land.
+        /// </summary>
+        public static Color Shoreline(LakeSet lakes, int cell, Color terrainColor, ShorelineFlags flags)
+        {
+            if ((flags & ShorelineFlags.Unresolved) != 0) return UnresolvedColor;
+            if ((flags & ShorelineFlags.Inlet) != 0) return InflowColor;
+            if ((flags & ShorelineFlags.Outlet) != 0) return OutletColor;
+            if ((flags & ShorelineFlags.Exposed) != 0) return ExposedColor;
+            if ((flags & ShorelineFlags.Problem) != 0) return ProblemColor;
+            if ((flags & ShorelineFlags.BasinCut) != 0) return BasinCutColor;
+            if ((flags & ShorelineFlags.Shore) != 0) return ShoreLineColor;
+            if ((flags & ShorelineFlags.Rejected) != 0) return RejectedColor;
+            if ((flags & ShorelineFlags.Dropped) != 0) return DroppedColor;
+            if ((flags & ShorelineFlags.Fragment) != 0) return FragmentColor;
+            if ((flags & ShorelineFlags.Water) != 0) return ShoreWaterColor;
+            int lake = lakes.GetLakeOfCell(cell);
+            if (lake >= 0)
+            {
+                HydrologyGrid grid = lakes.Hydrology.Grid;
+                for (int k = grid.GetNeighborStart(cell); k < grid.GetNeighborEnd(cell); k++)
+                {
+                    if (lakes.GetLakeOfCell(grid.GetNeighbor(k)) != lake)
+                    {
+                        return FootprintBoundaryColor;
+                    }
+                }
+            }
+            return Land(terrainColor);
+        }
+
         static Color Land(Color terrainColor)
         {
             float luminance = 0.3f * terrainColor.r + 0.59f * terrainColor.g + 0.11f * terrainColor.b;

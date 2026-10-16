@@ -23,6 +23,8 @@ namespace Planetwalker.Editor
         const string DebugMaterialPath = MaterialsFolder + "/PlanetDebugUnlit.mat";
         const string RiverMaterialPath = MaterialsFolder + "/PlanetRiver.mat";
         const string LakeMaterialPath = MaterialsFolder + "/PlanetLake.mat";
+        const string AtmosphereMaterialPath = MaterialsFolder + "/PlanetAtmosphere.mat";
+        const string CloudMaterialPath = MaterialsFolder + "/PlanetClouds.mat";
 
         [MenuItem("Planetwalker/Setup Genesis Scene")]
         public static void SetupGenesisScene()
@@ -45,7 +47,9 @@ namespace Planetwalker.Editor
             Material debug = GetOrCreateMaterial(DebugMaterialPath, PlanetVisualController.DebugShaderName);
             Material river = GetOrCreateMaterial(RiverMaterialPath, PlanetVisualController.RiverShaderName);
             Material lake = GetOrCreateMaterial(LakeMaterialPath, PlanetVisualController.LakeShaderName);
-            if (terrain == null || ocean == null || debug == null || river == null || lake == null)
+            Material atmosphere = GetOrCreateMaterial(AtmosphereMaterialPath, PlanetVisualController.AtmosphereShaderName);
+            Material clouds = GetOrCreateMaterial(CloudMaterialPath, PlanetVisualController.CloudShaderName);
+            if (terrain == null || ocean == null || debug == null || river == null || lake == null || atmosphere == null || clouds == null)
             {
                 return;
             }
@@ -54,6 +58,8 @@ namespace Planetwalker.Editor
             var bootstrap = new GameObject("Planetwalker").AddComponent<PlanetBootstrap>();
             bootstrap.EnsureSceneObjects();
             bootstrap.Visual.SetMaterials(terrain, ocean, debug, river, lake);
+            bootstrap.Visual.SetAtmosphereMaterial(atmosphere);
+            bootstrap.Visual.SetCloudMaterial(clouds);
             bootstrap.ApplySpaceEnvironment();
 
             EnsureFolder(Path.GetDirectoryName(ScenePath));

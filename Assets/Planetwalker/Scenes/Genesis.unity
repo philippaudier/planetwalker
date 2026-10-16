@@ -2810,6 +2810,12 @@ MonoBehaviour:
     detailFrequency: 24
     detailStrength: 0.003
     seaLevel: 0
+    continentalWarpStrength: 0.2
+    continentalWarpFrequency: 1.1
+    coastalComplexity: 0.5
+    mountainRangeCoverage: 0.5
+    mountainRangeLength: 1
+    mountainRuggedness: 0.5
   visual: {fileID: 1413740304}
   orbitCamera: {fileID: 1854109009}
   panel: {fileID: 1536127870}
@@ -2878,6 +2884,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: Planetwalker::Planetwalker.Rendering.PlanetVisualController
   terrainMaterial: {fileID: 2100000, guid: fa1502f67699ec66992bf75da12df3f5, type: 2}
   oceanMaterial: {fileID: 2100000, guid: 44af18889c8a822769193e2c50192ab4, type: 2}
+  debugMaterial: {fileID: 0}
+  riverMaterial: {fileID: 0}
+  lakeMaterial: {fileID: 0}
   colorRamp:
     stops:
     - elevation: -0.03
@@ -2910,7 +2919,59 @@ MonoBehaviour:
     rockSteepnessStart: 0.05
     rockSteepnessEnd: 0.2
     rockStrength: 0.75
-  oceanResolution: 64
+  oceanResolution: 128
+  debugView: 0
+  hydrology:
+    resolution: 128
+    riverNetworkThreshold: 0.0007
+  rivers:
+    showRivers: 0
+    smoothing: 0.67
+    widthMultiplier: 1
+    referenceWidth: 0.0012
+    referenceArea: 0.0005
+    widthExponent: 0.5
+    minWidth: 0.0005
+    maxWidth: 0.006
+    minPixelHalfWidth: 0.75
+    minDisplayLength: 0.08
+    sourceTaperLength: 0.03
+    color: {r: 0.16, g: 0.36, b: 0.62, a: 1}
+  lakes:
+    showLakes: 0
+    abundance: 0.5
+    minimumArea: 0.00004
+    fillingFactor: 0.7
+    color: {r: 0.04, g: 0.17, b: 0.27, a: 1}
+  climate:
+    resolution: 64
+    rotationAxis: {x: 0, y: 1, z: 0}
+    axialTilt: 23.5
+    elevationScale: 1
+    lapseRate: 6.5
+    planetRadiusKm: 6371
+    equatorTemperature: 27
+    poleTemperature: -25
+    continentality: 0.15
+    oceanInfluenceDistance: 700
+    temperatureVariation: 0.75
+    windPerturbation: 20
+    landRecycling: 0.35
+    stormTracks: 1
+    rainLength: 1800
+    evaporationLength: 500
+    humidityRainExponent: 0
+  climateWindDirectionColors: 0
+  biomes:
+    aridity: 1
+    ecotoneSharpness: 1
+    alpineSensitivity: 1
+  surface:
+    enabled: 1
+    biomeBlend: 0.5
+    regionalVariation: 0.5
+    rockExposure: 0.5
+    saturation: 0.9
 --- !u!1 &1447077249
 GameObject:
   m_ObjectHideFlags: 0
@@ -3118,14 +3179,88 @@ MonoBehaviour:
   regenerateButton: {fileID: 855267098}
   randomizeButton: {fileID: 1202673459}
   continentSlider: {fileID: 246193955}
+  distortionSlider: {fileID: 0}
+  coastSlider: {fileID: 0}
   mountainSlider: {fileID: 1644928043}
+  rangeCoverageSlider: {fileID: 0}
+  ruggednessSlider: {fileID: 0}
   seaLevelSlider: {fileID: 902648007}
   resolutionSlider: {fileID: 438600733}
   continentValue: {fileID: 551498060}
+  distortionValue: {fileID: 0}
+  coastValue: {fileID: 0}
   mountainValue: {fileID: 1926997034}
+  rangeCoverageValue: {fileID: 0}
+  ruggednessValue: {fileID: 0}
   seaLevelValue: {fileID: 1676325152}
   resolutionValue: {fileID: 247476692}
   statsText: {fileID: 1495696140}
+  hydrologyToggle: {fileID: 0}
+  hydrologyViewButton: {fileID: 0}
+  hydrologyViewLabel: {fileID: 0}
+  hydrologyResolutionSlider: {fileID: 0}
+  hydrologyResolutionValue: {fileID: 0}
+  hydrologyStatsText: {fileID: 0}
+  riverToggle: {fileID: 0}
+  riverDebugToggle: {fileID: 0}
+  riverDensitySlider: {fileID: 0}
+  riverWidthSlider: {fileID: 0}
+  riverSmoothingSlider: {fileID: 0}
+  riverDensityValue: {fileID: 0}
+  riverWidthValue: {fileID: 0}
+  riverSmoothingValue: {fileID: 0}
+  riverStatsText: {fileID: 0}
+  lakeToggle: {fileID: 0}
+  lakeViewButton: {fileID: 0}
+  lakeViewLabel: {fileID: 0}
+  lakeAbundanceSlider: {fileID: 0}
+  lakeMinAreaSlider: {fileID: 0}
+  lakeLevelSlider: {fileID: 0}
+  lakeAbundanceValue: {fileID: 0}
+  lakeMinAreaValue: {fileID: 0}
+  lakeLevelValue: {fileID: 0}
+  lakeStatsText: {fileID: 0}
+  climateToggle: {fileID: 0}
+  climateViewButton: {fileID: 0}
+  climateViewLabel: {fileID: 0}
+  climateResolutionSlider: {fileID: 0}
+  axialTiltSlider: {fileID: 0}
+  climateElevationSlider: {fileID: 0}
+  climateResolutionValue: {fileID: 0}
+  axialTiltValue: {fileID: 0}
+  climateElevationValue: {fileID: 0}
+  climateLegendText: {fileID: 0}
+  climateLegendBar: {fileID: 0}
+  climateLegendTicks: {fileID: 0}
+  climateLegendNote: {fileID: 0}
+  climateStatsText: {fileID: 0}
+  displayModeText: {fileID: 0}
+  naturalToggle: {fileID: 0}
+  surfaceBlendSlider: {fileID: 0}
+  surfaceVariationSlider: {fileID: 0}
+  surfaceRockSlider: {fileID: 0}
+  surfaceSaturationSlider: {fileID: 0}
+  surfaceBlendValue: {fileID: 0}
+  surfaceVariationValue: {fileID: 0}
+  surfaceRockValue: {fileID: 0}
+  surfaceSaturationValue: {fileID: 0}
+  biomeToggle: {fileID: 0}
+  biomeViewButton: {fileID: 0}
+  biomeViewLabel: {fileID: 0}
+  biomeAriditySlider: {fileID: 0}
+  biomeSharpnessSlider: {fileID: 0}
+  biomeAlpineSlider: {fileID: 0}
+  biomeAridityValue: {fileID: 0}
+  biomeSharpnessValue: {fileID: 0}
+  biomeAlpineValue: {fileID: 0}
+  biomeLegendText: {fileID: 0}
+  biomeLegendBar: {fileID: 0}
+  biomeLegendTicks: {fileID: 0}
+  biomeLegendNote: {fileID: 0}
+  biomeStatsText: {fileID: 0}
+  panelFrame: {fileID: 0}
+  panelContent: {fileID: 0}
+  panelScroll: {fileID: 0}
   sliderRegenerateDelay: 0.35
 --- !u!114 &1536127871
 MonoBehaviour:

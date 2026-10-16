@@ -1,7 +1,8 @@
 // Planetwalker lakes: flat water surfaces with the ocean's visual language (Fresnel rim, sun
-// glint), a little darker and greener, more opaque where deeper. Drawn before the ocean and
-// writing depth. A small, distance-scaled
+// glint), a little darker and greener, more opaque where deeper. Drawn before the rivers and the
+// ocean, writing depth (submerged river ends are hidden by it). A small, distance-scaled
 // radial lift plus a depth offset avoids z-fighting with the shore while staying sub-pixel.
+// The single bright spot is the sun glint (legitimate specular), not a mesh defect.
 // No waves, foam or underwater rendering. URP only.
 Shader "Planetwalker/PlanetLake"
 {
@@ -73,7 +74,7 @@ Shader "Planetwalker/PlanetLake"
             {
                 float4 positionCS : SV_POSITION;
                 float3 positionWS : TEXCOORD0;
-                float3 normalWS : TEXCOORD1;
+                float3 radialWS : TEXCOORD1;
                 float depth : TEXCOORD2;
             };
 
@@ -85,7 +86,8 @@ Shader "Planetwalker/PlanetLake"
                 float distanceToCamera = distance(positionWS, _WorldSpaceCameraPos);
                 positionWS += normalWS * max(_MinLift, _LiftPerDistance * distanceToCamera);
                 output.positionWS = positionWS;
-                output.normalWS = normalWS;
+                // From the planet center: the per-pixel normal of the water sphere.
+                output.radialWS = positionWS - TransformObjectToWorld(float3(0.0, 0.0, 0.0));
                 output.positionCS = TransformWorldToHClip(positionWS);
                 output.depth = input.water.x;
                 return output;
@@ -93,7 +95,9 @@ Shader "Planetwalker/PlanetLake"
 
             half4 Frag(Varyings input) : SV_Target
             {
-                float3 normalWS = normalize(input.normalWS);
+                // A lake at rest is a sphere around the planet center: exact radial normal per pixel,
+                // independent of the triangulation (no triangle-dependent lighting).
+                float3 normalWS = normalize(input.radialWS);
                 float3 viewWS = GetWorldSpaceNormalizeViewDir(input.positionWS);
                 Light mainLight = GetMainLight();
 

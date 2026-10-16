@@ -203,6 +203,39 @@ namespace Planetwalker.Generation
             return Index(face, ToCellIndex(a), ToCellIndex(b));
         }
 
+        /// <summary>
+        /// Local center spacing at a direction (great-circle radians, the smaller of the two grid
+        /// directions): from 1 x (face centers) down to ~0.71 x (across face edges) the nominal
+        /// pi / (2 n). Continuous over the sphere, also across cube edges, so kernels sized by it
+        /// stay inside the 8-neighbourhood and vary smoothly.
+        /// </summary>
+        public float LocalSpacing(Vector3 direction)
+        {
+            float ax = Mathf.Abs(direction.x), ay = Mathf.Abs(direction.y), az = Mathf.Abs(direction.z);
+            float major = Mathf.Max(ax, Mathf.Max(ay, az));
+            float x, y;
+            if (major == ay)
+            {
+                x = ax / ay;
+                y = az / ay;
+            }
+            else if (major == ax)
+            {
+                x = ay / ax;
+                y = az / ax;
+            }
+            else
+            {
+                x = ax / az;
+                y = ay / az;
+            }
+            // Equi-angular map: tangent coordinate X = tan(a); |dp/da| = (1 + X^2) sqrt(1 + Y^2) / (1 + X^2 + Y^2).
+            float r2 = 1f + x * x + y * y;
+            float alongX = (1f + x * x) * Mathf.Sqrt(1f + y * y) / r2;
+            float alongY = (1f + y * y) * Mathf.Sqrt(1f + x * x) / r2;
+            return Mathf.Min(alongX, alongY) * Mathf.PI * 0.5f / Resolution;
+        }
+
         int ToCellIndex(float parameter)
         {
             return Mathf.Clamp(Mathf.FloorToInt((parameter + 1f) * 0.5f * Resolution), 0, Resolution - 1);

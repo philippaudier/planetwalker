@@ -954,10 +954,17 @@ namespace Planetwalker.Tests
                 var builder = new LakeMeshBuilder();
                 builder.BuildGeometry(lakes, planet, sampler);
                 AssertLakeMeshValid(builder, sampler);
+                // V0.1.1D-B.2: water is never raised over the displayed terrain any more, so a lake whose
+                // depression the display mesh cannot show (no render vertex below its level, mesh 32 for
+                // a 64 grid) is not drawn; it must then be reported.
+                int hidden = 0;
                 for (int lake = 0; lake < lakes.Count; lake++)
                 {
-                    Assert.Greater(builder.GetLakeVertexStart(lake + 1), builder.GetLakeVertexStart(lake), "Lake " + lake + " is drawn");
+                    bool drawn = builder.GetLakeVertexStart(lake + 1) > builder.GetLakeVertexStart(lake);
+                    hidden += drawn ? 0 : 1;
+                    Assert.IsTrue(drawn || meshResolution < 64, "Lake " + lake + " is drawn");
                 }
+                Assert.AreEqual(hidden, builder.LastDiagnostics.UnrepresentedLakes, "Hidden lakes are reported");
             }
         }
 

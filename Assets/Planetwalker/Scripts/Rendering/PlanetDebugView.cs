@@ -55,6 +55,49 @@ namespace Planetwalker.Rendering
         /// <summary>Lake connectivity: outlets magenta, inflows green, outflow rivers yellow, rivers
         /// gray, captured channels dark red, closed-basin connectors cyan.</summary>
         LakeConnectivity,
+
+        /// <summary>Lake shoreline validation (V0.1.1D-B.2 geometry): water vertices blue (detached
+        /// parts teal), shoreline edges white, basin-boundary cuts orange, low terrain left dry outside
+        /// the lake region purple, dropped one-vertex puddles pink, problem triangles yellow, lake
+        /// footprint boundary cells dark cyan; river inlets green, outlets magenta, unresolved
+        /// transitions red, exposed transition ends orange-red. Water is hidden, ribbons drawn.</summary>
+        LakeShoreline,
+
+        /// <summary>Climate: annual-mean surface temperature on the classic climatology scale (white -50 C,
+        /// magenta, purple, blue, cyan 0 C, yellow 10 C, red 20 C, dark red 30 C); ocean slightly darker.</summary>
+        ClimateTemperature,
+
+        /// <summary>Climate: atmospheric moisture index, dry (brown) to humid (blue).</summary>
+        ClimateMoisture,
+
+        /// <summary>Climate: precipitation index relative to the planet mean, arid (tan) to very wet (deep blue).</summary>
+        ClimatePrecipitation,
+
+        /// <summary>Climate: prevailing winds, compass color of the heading (brightness = speed) plus arrows.</summary>
+        ClimateWinds,
+
+        /// <summary>Climate: ocean influence / continentality, coasts pale, interiors dark red, 500 km bands.</summary>
+        ClimateContinentality,
+
+        /// <summary>Biomes: dominant terrestrial biome (discrete palette); ocean neutral navy.</summary>
+        BiomeMap,
+
+        /// <summary>Biomes: suitability of the dominant biome (0.2 .. 1, dark = weak).</summary>
+        BiomeSuitability,
+
+        /// <summary>Biomes: ecotones, where the two best biomes are close (bright orange), over dimmed biome colors.</summary>
+        BiomeTransitions,
+
+        /// <summary>Biomes: relative aridity index P / evaporative demand (hyper-arid .. per-humid, log scale).</summary>
+        BiomeAridity,
+
+        /// <summary>Clouds (V0.1.2C): cloud cover of the deterministic cloud field (0 clear .. 1 overcast) over
+        /// dark land / ocean backgrounds; before density and local detail, static (time 0).</summary>
+        CloudCoverage,
+
+        /// <summary>Clouds: structure of the cloud field: large-scale potential (gray), weather systems (orange),
+        /// tropical convection (teal), system centers (red).</summary>
+        CloudStructure,
     }
 
     public static class PlanetDebugViews
@@ -65,11 +108,30 @@ namespace Planetwalker.Rendering
             return IsHydrology(view) || view == PlanetDebugView.RiverNetwork || IsLake(view);
         }
 
-        /// <summary>The four lake views (they need the lake analysis; connectivity also the rivers).</summary>
+        /// <summary>The lake views (they need the lake analysis; connectivity and shoreline also the rivers).</summary>
         public static bool IsLake(PlanetDebugView view)
         {
             return view == PlanetDebugView.LakeCandidates || view == PlanetDebugView.LakeDepth
-                || view == PlanetDebugView.LakeClassification || view == PlanetDebugView.LakeConnectivity;
+                || view == PlanetDebugView.LakeClassification || view == PlanetDebugView.LakeConnectivity
+                || view == PlanetDebugView.LakeShoreline;
+        }
+
+        /// <summary>The climate views (they need the climate analysis only).</summary>
+        public static bool IsClimate(PlanetDebugView view)
+        {
+            return view >= PlanetDebugView.ClimateTemperature && view <= PlanetDebugView.ClimateContinentality;
+        }
+
+        /// <summary>The biome views (they need the climate and the biome classification).</summary>
+        public static bool IsBiome(PlanetDebugView view)
+        {
+            return view >= PlanetDebugView.BiomeMap && view <= PlanetDebugView.BiomeAridity;
+        }
+
+        /// <summary>The cloud views (they need the cloud field only; never the climate).</summary>
+        public static bool IsCloud(PlanetDebugView view)
+        {
+            return view == PlanetDebugView.CloudCoverage || view == PlanetDebugView.CloudStructure;
         }
 
         public static bool IsHydrology(PlanetDebugView view)

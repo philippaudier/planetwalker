@@ -52,10 +52,19 @@ namespace Planetwalker.Rendering
             }
         }
 
-        /// <summary>Point of the rendered terrain in a unit direction (object space).</summary>
-        public Vector3 Sample(Vector3 direction)
+        /// <summary>Displayed vertex (x, y) of a face grid (object space, same layout as the face meshes).</summary>
+        public Vector3 GetVertex(int face, int x, int y)
         {
-            int face = DominantFace(direction);
+            return faceVertices[face][x + y * (resolution + 1)];
+        }
+
+        /// <summary>
+        /// Render quad (face, x0, y0) containing a unit direction, and the position inside it
+        /// (tx, ty in [0, 1]); the quad is split along its (x0, y0) - (x0 + 1, y0 + 1) diagonal.
+        /// </summary>
+        public void Locate(Vector3 direction, out int face, out int x0, out int y0, out float tx, out float ty)
+        {
+            face = DominantFace(direction);
             CubeSphereGenerator.GetFaceAxes(face, out Vector3 normal, out Vector3 axisA, out Vector3 axisB);
             float depth = Vector3.Dot(direction, normal);
             float u = Vector3.Dot(direction, axisA) / depth;
@@ -83,13 +92,19 @@ namespace Planetwalker.Rendering
             }
 
             int n = resolution;
-            int edge = n + 1;
             float fx = (a + 1f) * 0.5f * n;
             float fy = (b + 1f) * 0.5f * n;
-            int x0 = Mathf.Clamp(Mathf.FloorToInt(fx), 0, n - 1);
-            int y0 = Mathf.Clamp(Mathf.FloorToInt(fy), 0, n - 1);
-            float tx = fx - x0;
-            float ty = fy - y0;
+            x0 = Mathf.Clamp(Mathf.FloorToInt(fx), 0, n - 1);
+            y0 = Mathf.Clamp(Mathf.FloorToInt(fy), 0, n - 1);
+            tx = fx - x0;
+            ty = fy - y0;
+        }
+
+        /// <summary>Point of the rendered terrain in a unit direction (object space).</summary>
+        public Vector3 Sample(Vector3 direction)
+        {
+            Locate(direction, out int face, out int x0, out int y0, out float tx, out float ty);
+            int edge = resolution + 1;
             List<Vector3> vertices = faceVertices[face];
             int i = x0 + y0 * edge;
             Vector3 p00 = vertices[i];
