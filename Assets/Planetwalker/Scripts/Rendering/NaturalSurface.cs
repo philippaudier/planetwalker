@@ -210,6 +210,22 @@ namespace Planetwalker.Rendering
         /// </summary>
         public Color Evaluate(Vector3 direction, float elevation, float[] scores, float[] pointScores)
         {
+            return Evaluate(direction, elevation, scores, pointScores, out _);
+        }
+
+        // Ground cover of each biome (V0.2.0F.2, physically based materials): green grass, dry grass, forest floor.
+        // Snow is the ice potential. Index = Biome.
+        static readonly float[] GreenGrass = { 0f, 0.15f, 0.1f, 0f, 0.1f, 0.1f, 0f, 0.85f, 0.15f, 0.1f, 0.1f, 0.5f, 0.2f, 0f };
+        static readonly float[] DryGrass = { 0f, 0f, 0.6f, 0.05f, 0.4f, 0.75f, 0.1f, 0.1f, 0f, 0f, 0f, 0.2f, 0.3f, 0f };
+        static readonly float[] ForestFloor = { 0f, 0.85f, 0.2f, 0f, 0.35f, 0f, 0f, 0f, 0.85f, 0.9f, 0.85f, 0f, 0f, 0f };
+
+        /// <summary>
+        /// <see cref="Evaluate(Vector3, float, float[], float[])"/>, also returning the ground cover (V0.2.0F.2): green
+        /// grass, dry grass, forest floor, snow (0 .. 1 each, from the same three blended biomes). The PBR terrain picks
+        /// its ground materials from it; the color is unchanged.
+        /// </summary>
+        public Color Evaluate(Vector3 direction, float elevation, float[] scores, float[] pointScores, out Vector4 cover)
+        {
             ClimateResult climate = BiomeData.Climate;
             float landWeight = BiomeData.SampleScores(direction, scores);
             if (landWeight < FallbackWeight)
@@ -261,6 +277,11 @@ namespace Planetwalker.Rendering
             Color color = Palette[b1] * w1 + Palette[b2] * w2 + Palette[b3] * w3;
             float vegetation = Vegetation[b1] * w1 + Vegetation[b2] * w2 + Vegetation[b3] * w3;
             float ice = (b1 == (int)Biome.IcePotential ? w1 : 0f) + (b2 == (int)Biome.IcePotential ? w2 : 0f) + (b3 == (int)Biome.IcePotential ? w3 : 0f);
+            cover = new Vector4(
+                GreenGrass[b1] * w1 + GreenGrass[b2] * w2 + GreenGrass[b3] * w3,
+                DryGrass[b1] * w1 + DryGrass[b2] * w2 + DryGrass[b3] * w3,
+                ForestFloor[b1] * w1 + ForestFloor[b2] * w2 + ForestFloor[b3] * w3,
+                ice);
 
             // 2. Multi-scale variation (continuous on the sphere).
             float v = Settings.regionalVariation;

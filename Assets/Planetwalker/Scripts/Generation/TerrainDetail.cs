@@ -317,6 +317,12 @@ namespace Planetwalker.Generation
         public TerrainReliefField Relief { get; }
         public float SeaLevel { get; }
 
+        /// <summary>
+        /// Terrain character at a direction (V0.2.0E, read by the surface geology): the seeded planet-scale field of
+        /// the local and micro bands, about -1 (rugged) .. 1 (smooth, eroded). The very value <see cref="Evaluate"/> uses.
+        /// </summary>
+        public float Character(Vector3 direction) => PlanetNoise.Fractal(direction * CharacterFrequency, characterSeed, CharacterOctaves);
+
         /// <summary>Total detail (fraction of the radius) at a direction, band limited to a sample spacing (0 = full).</summary>
         public float Evaluate(Vector3 direction, in TerrainBaseSample context, float spacing)
         {

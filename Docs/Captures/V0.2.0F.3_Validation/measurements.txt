@@ -1,0 +1,28 @@
+A valley 1 km -> 1.7 m -> 1 km, 601 frames: frame diff median 5.96 p95 8.10 max 8.48; spike score max 1.0; pops 0; ground brightness 80.7..95.2, largest frame step 0.43
+Cube-face boundary location (-0.64, 0.42, -0.64) (gap to the edge 0.000029)
+B valley 10 m: 384: 384 patches (L0-L16), holes 0 px, mesh vs authoritative height in view: mean 0.91 m max 5.22 m | 512: 510 patches (L0-L16), holes 0 px, mesh vs authoritative height in view: mean 0.87 m max 5.22 m | 1024: 1023 patches (L0-L16), holes 0 px, mesh vs authoritative height in view: mean 0.35 m max 2.29 m
+B valley 10 m 384 vs 1024: lit 6.02 (80.5 %) albedo 5.29 (76.6 %) normal 12.63 (98.9 %) materialid 1.07 (12.7 %) vertexcolor 3.43 (61.4 %)
+B valley 10 m 512 vs 1024: lit 6.02 (80.5 %) albedo 5.29 (76.6 %) normal 12.63 (98.9 %) materialid 1.07 (12.7 %) vertexcolor 3.43 (61.4 %)
+B valley 100 m: 384: 384 patches (L0-L15), holes 0 px, mesh vs authoritative height in view: mean 1.01 m max 5.72 m | 512: 510 patches (L0-L16), holes 0 px, mesh vs authoritative height in view: mean 0.76 m max 4.18 m | 1024: 1023 patches (L0-L16), holes 0 px, mesh vs authoritative height in view: mean 0.35 m max 2.29 m
+B valley 100 m 384 vs 1024: lit 6.40 (73.8 %) albedo 4.67 (58.6 %) normal 8.37 (86.9 %) materialid 0.63 (5.1 %) vertexcolor 3.94 (62.2 %)
+B valley 100 m 512 vs 1024: lit 4.73 (63.0 %) albedo 3.75 (48.5 %) normal 5.74 (79.1 %) materialid 0.35 (2.6 %) vertexcolor 2.66 (46.2 %)
+B mountain 10 m: 384: 384 patches (L0-L16), holes 0 px, mesh vs authoritative height in view: mean 1.18 m max 3.33 m | 512: 510 patches (L0-L16), holes 0 px, mesh vs authoritative height in view: mean 0.36 m max 1.49 m | 1024: 1023 patches (L0-L16), holes 0 px, mesh vs authoritative height in view: mean 0.22 m max 1.34 m
+B mountain 10 m 384 vs 1024: lit 3.47 (59.7 %) albedo 6.12 (78.5 %) normal 9.50 (93.7 %) materialid 0.00 (0.0 %) vertexcolor 0.00 (0.0 %)
+B mountain 10 m 512 vs 1024: lit 3.12 (54.0 %) albedo 5.46 (73.1 %) normal 8.86 (92.5 %) materialid 0.00 (0.0 %) vertexcolor 0.00 (0.0 %)
+B mountain 100 m: 384: 384 patches (L0-L16), holes 0 px, mesh vs authoritative height in view: mean 1.15 m max 3.33 m | 512: 510 patches (L0-L16), holes 0 px, mesh vs authoritative height in view: mean 0.36 m max 1.49 m | 1024: 1023 patches (L0-L16), holes 0 px, mesh vs authoritative height in view: mean 0.22 m max 1.34 m
+B mountain 100 m 384 vs 1024: lit 1.23 (17.9 %) albedo 2.29 (37.3 %) normal 3.67 (62.2 %) materialid 0.00 (0.0 %) vertexcolor 0.00 (0.0 %)
+B mountain 100 m 512 vs 1024: lit 1.23 (17.9 %) albedo 2.29 (37.3 %) normal 3.67 (62.2 %) materialid 0.00 (0.0 %) vertexcolor 0.00 (0.0 %)
+Determinism: 500 authoritative heights x 3 budgets, mismatches 0
+Preset mountain 1_7m: requested clearance 1.7 m; vertical clearance 5.32 m; distance to surface 1.50 m; nearest rendered mesh 1.38 m; near plane 0.375 m; holes 0 px
+Preset mountain 10m: requested clearance 10 m; vertical clearance 10.00 m; distance to surface 2.50 m; nearest rendered mesh 2.46 m; near plane 0.626 m; holes 0 px
+Preset mountain 100m: requested clearance 100 m; vertical clearance 100.00 m; distance to surface 25.06 m; nearest rendered mesh 24.49 m; near plane 6.264 m; holes 0 px
+Preset mountain 1km: requested clearance 1000 m; vertical clearance 1000.00 m; distance to surface 332.74 m; nearest rendered mesh 287.40 m; near plane 83.184 m; holes 0 px
+Preset coast 10m: requested clearance 10 m; vertical clearance 10.00 m; distance to surface 10.00 m; nearest rendered mesh 10.00 m; near plane 2.500 m; holes 0 px
+Preset coast 100m: requested clearance 100 m; vertical clearance 100.00 m; distance to surface 100.00 m; nearest rendered mesh 100.01 m; near plane 25.000 m; holes 0 px
+Preset coast 1km: requested clearance 1000 m; vertical clearance 1000.00 m; distance to surface 1000.00 m; nearest rendered mesh 1000.49 m; near plane 250.000 m; holes 0 px
+Preset cubeface 10m: requested clearance 10 m; vertical clearance 10.00 m; distance to surface 10.00 m; nearest rendered mesh 9.93 m; near plane 2.500 m; holes 0 px
+Preset cubeface 5km: requested clearance 5000 m; vertical clearance 5000.00 m; distance to surface 5000.00 m; nearest rendered mesh 5045.96 m; near plane 1250.000 m; holes 0 px
+Perf valley 10 m budget 512: 510 patches, 314 k triangles, cold settle 6586 ms, Draw() 1.07 ms, offscreen frame 19.1 ms
+Perf valley 10 m budget 1024: 1023 patches, 631 k triangles, cold settle 11061 ms, Draw() 2.49 ms, offscreen frame 17.7 ms
+Perf valley 1000 m budget 512: 510 patches, 316 k triangles, cold settle 7561 ms, Draw() 1.26 ms, offscreen frame 23.9 ms
+Perf valley 1000 m budget 1024: 1023 patches, 635 k triangles, cold settle 13931 ms, Draw() 2.61 ms, offscreen frame 27.5 ms

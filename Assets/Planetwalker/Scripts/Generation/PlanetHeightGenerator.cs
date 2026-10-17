@@ -239,24 +239,34 @@ namespace Planetwalker.Generation
         /// </summary>
         public float GetElevation(Vector3d direction, float sampleSpacing)
         {
+            return GetElevation(direction, sampleSpacing, out _);
+        }
+
+        /// <summary>
+        /// <see cref="GetElevation(Vector3d, float)"/>, also returning the planetary context of the sample (continental
+        /// field, mountain envelope and influence, ridge anisotropy; V0.2.0E surface geology): the same evaluation, no
+        /// extra cost. The context's elevation is the planetary terrain e0 (without the surface detail).
+        /// </summary>
+        public float GetElevation(Vector3d direction, float sampleSpacing, out TerrainBaseSample context)
+        {
             bool fine = sampleSpacing == 0f || sampleSpacing < FineSpacing;
             if (fine)
             {
                 // Everything from the lattice: the smooth e0 and the (slowly varying) context of the nearest sample.
-                float baseElevation = FineBaseElevation(direction, out TerrainBaseSample fineContext);
+                float baseElevation = FineBaseElevation(direction, out context);
+                context.Elevation = baseElevation;
                 if (surfaceDetail == null)
                 {
                     return baseElevation;
                 }
-                fineContext.Elevation = baseElevation;
-                return baseElevation + surfaceDetail.Evaluate(direction, fineContext, sampleSpacing);
+                return baseElevation + surfaceDetail.Evaluate(direction, context, sampleSpacing);
             }
             Vector3 dir = direction.ToVector3();
+            float e = SampleBase(dir, out context); // GetBaseElevation is SampleBase
             if (surfaceDetail == null)
             {
-                return GetBaseElevation(dir);
+                return e;
             }
-            float e = SampleBase(dir, out TerrainBaseSample context);
             return e + surfaceDetail.Evaluate(direction, context, sampleSpacing);
         }
 

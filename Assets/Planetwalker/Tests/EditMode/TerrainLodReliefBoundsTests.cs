@@ -1,5 +1,7 @@
+using System.Collections.Generic;
 using NUnit.Framework;
 using Planetwalker.Core;
+using Planetwalker.Persistence;
 using Planetwalker.Terrain;
 using UnityEngine;
 
@@ -147,6 +149,136 @@ namespace Planetwalker.Tests
             Assert.Less(widest, 0.1f * (sampler.MaxRadius - sampler.MinRadius), "Local bounds, far tighter than the planet's range");
         }
 
+        /// <summary>
+        /// Second report: very close to the ground the finest patches were 13 - 26 km to one side of the camera. The
+        /// camera was inside the bounding spheres of several neighboring patches, their errors saturated to the same
+        /// value and the ties were broken by patch key. The distance now keeps two informative lower bounds.
+        /// </summary>
+        [Test]
+        public void FinestPatches_AreCenteredUnderALowCamera()
+        {
+            var selector = new TerrainLodSelector(new AdaptiveTerrainSettings());
+            var log = new System.Text.StringBuilder();
+            foreach (Vector3 raw in new[] { new Vector3(0.31f, 0.52f, 0.79f), new Vector3(-0.6f, 0.2f, 0.77f), new Vector3(0.1f, -0.9f, 0.4f) })
+            {
+                Vector3 d = raw.normalized;
+                float surface = sampler.Radius * (1f + Mathf.Max(planet.Height.GetElevation(d), planet.SeaLevel));
+                foreach (float km in new[] { 7f, 1f, 0.1f })
+                {
+                    Vector3 position = d * (surface + km / EarthKm * sampler.Radius);
+                    var view = new TerrainLodView(position, 60f, 1080);
+                    var go = new GameObject("LOD Test Camera");
+                    try
+                    {
+                        Camera camera = go.AddComponent<Camera>();
+                        camera.fieldOfView = 60f;
+                        camera.aspect = 16f / 9f;
+                        camera.nearClipPlane = 1e-5f;
+                        camera.farClipPlane = 1000f;
+                        camera.transform.position = position;
+                        camera.transform.rotation = Quaternion.LookRotation(-d, Mathf.Abs(d.y) < 0.9f ? Vector3.up : Vector3.right);
+                        view.Frustum = GeometryUtility.CalculateFrustumPlanes(camera); // looking at the planet center, like the orbit camera
+                    }
+                    finally
+                    {
+                        Object.DestroyImmediate(go);
+                    }
+                    selector.Reset();
+                    TerrainLodSelection selection = selector.Select(sampler, view);
+                    Vector3 sum = Vector3.zero;
+                    int under = 0;
+                    foreach (PlanetPatchId id in selection.Leaves)
+                    {
+                        if (id.Level == selection.MaxLevel)
+                        {
+                            sum += CubeSphereCoordinates.CenterDirection(id);
+                        }
+                    }
+                    for (int level = 0; level <= PlanetPatchId.MaxLevel; level++)
+                    {
+                        if (selection.IsLeaf(CubeSphereCoordinates.PatchAt(d, level)))
+                        {
+                            under = level;
+                            break;
+                        }
+                    }
+                    float offsetKm = Vector3.Angle(sum.normalized, d) * Mathf.Deg2Rad * EarthKm;
+                    log.Append($" {km} km: offset {offsetKm:0.00} km, level under {under}/{selection.MaxLevel};");
+                    Assert.Less(offsetKm, Mathf.Max(0.5f * km, 0.2f), $"{raw} at {km} km: the finest patches are centered under the camera (before: 13 - 26 km off)");
+                    Assert.GreaterOrEqual(under, selection.MaxLevel - 1, $"{raw} at {km} km: the patch under the camera is among the finest");
+                }
+            }
+            TestContext.WriteLine("centering:" + log);
+        }
+
+        /// <summary>
+        /// Third report: very close to the ground the LOD flipped between more and less detailed while moving, unless
+        /// the budget was 4096. Causes: the budget cut-off decided by the greedy order among nearly equal candidates
+        /// (now a threshold scale), and the horizontal distance computed with acos of a float dot product (a ~2 km
+        /// noise floor at small angles; now atan2).
+        /// </summary>
+        [Test]
+        public void SlowDragCloseToTheGround_DoesNotFlicker()
+        {
+            Vector3 d0 = new Vector3(0.31f, 0.52f, 0.79f).normalized;
+            Vector3 east = Vector3.Cross(Vector3.up, d0).normalized;
+            var log = new System.Text.StringBuilder();
+            foreach (int budget in new[] { 512, 4096 })
+            {
+                foreach (float km in new[] { 1f, 0.1f })
+                {
+                    var selector = new TerrainLodSelector(new AdaptiveTerrainSettings { maxLeafPatches = budget });
+                    var lastChange = new Dictionary<ulong, int>();
+                    var previous = new HashSet<ulong>();
+                    int flips = 0, changes = 0;
+                    for (int f = 0; f < 200; f++)
+                    {
+                        float angle = f * 0.002f * km / EarthKm; // 0.2% of the altitude per frame
+                        Vector3 d = (d0 * Mathf.Cos(angle) + east * Mathf.Sin(angle)).normalized;
+                        float surface = sampler.Radius * (1f + Mathf.Max(planet.Height.GetElevation(d), planet.SeaLevel));
+                        Vector3 position = d * (surface + km / EarthKm * sampler.Radius);
+                        var view = new TerrainLodView(position, 60f, 1080);
+                        var go = new GameObject("LOD Test Camera");
+                        try
+                        {
+                            Camera camera = go.AddComponent<Camera>();
+                            camera.fieldOfView = 60f;
+                            camera.aspect = 16f / 9f;
+                            camera.nearClipPlane = 1e-5f;
+                            camera.farClipPlane = 1000f;
+                            camera.transform.position = position;
+                            camera.transform.rotation = Quaternion.LookRotation(-d, Vector3.up);
+                            view.Frustum = GeometryUtility.CalculateFrustumPlanes(camera);
+                        }
+                        finally
+                        {
+                            Object.DestroyImmediate(go);
+                        }
+                        var now = new HashSet<ulong>();
+                        foreach (PlanetPatchId id in selector.Select(sampler, view).Leaves)
+                        {
+                            now.Add(id.Key);
+                        }
+                        if (f > 0)
+                        {
+                            foreach (ulong k in now)
+                            {
+                                if (!previous.Contains(k)) { changes++; if (lastChange.TryGetValue(k, out int t) && f - t < 3) flips++; lastChange[k] = f; }
+                            }
+                            foreach (ulong k in previous)
+                            {
+                                if (!now.Contains(k)) { changes++; if (lastChange.TryGetValue(k, out int t) && f - t < 3) flips++; lastChange[k] = f; }
+                            }
+                        }
+                        previous = now;
+                    }
+                    log.Append($" budget {budget}, {km} km: {changes} leaf changes, {flips} flips;");
+                    Assert.AreEqual(0, flips, $"budget {budget}, {km} km: no patch splits and merges back within 3 frames (before: thousands)");
+                }
+            }
+            TestContext.WriteLine("slow drag over 200 frames:" + log);
+        }
+
         [Test]
         public void BoundsAreCachedPerPlanet_AndSelectionStaysCheap()
         {
@@ -164,6 +296,50 @@ namespace Planetwalker.Tests
             var other = new TerrainElevationSampler(new PlanetInstance(new PlanetDefinition { seed = 456388 }));
             selector.Select(other, view);
             Assert.Greater(selector.BoundComputeCount, computed, "Another planet: bounds recomputed (never reused across planets)");
+        }
+    }
+
+    /// <summary>The adaptive renderer re-selects after a camera move of a fraction of its altitude above the ground under it.</summary>
+    public class AdaptiveTerrainReselectionTests
+    {
+        readonly List<Object> created = new List<Object>();
+
+        [TearDown]
+        public void TearDown()
+        {
+            foreach (Object o in created)
+            {
+                if (o != null) Object.DestroyImmediate(o);
+            }
+            created.Clear();
+        }
+
+        [Test]
+        public void LowCamera_ReselectsAfterAShortMove()
+        {
+            var host = new WorldTestHost(created);
+            WorldConfiguration c = WorldArchiveTestUtil.Tweaked(1337, flipFlags: false);
+            c.Terrain.resolution = 16;
+            host.Apply(c);
+            host.Regenerate();
+            AdaptiveTerrainRenderer terrain = AdaptiveTerrainRenderer.GetOrCreate(host.Visual);
+            terrain.Settings.maxLeafPatches = 96;
+            terrain.BackgroundConstruction = false;
+            terrain.ConstructionMilliseconds = 10000f;
+            terrain.enabled = true;
+
+            PlanetInstance p = host.Current;
+            double metersPerUnit = p.Scale.ToMeters(1.0);
+            Vector3 d = new Vector3(0.2f, 0.6f, 0.77f).normalized;
+            float surface = p.Radius * (1f + Mathf.Max(p.Height.GetElevation(d), p.SeaLevel));
+            float altitude = (float)(100.0 / metersPerUnit); // 100 m above the ground
+            terrain.Tick(new TerrainLodView(d * (surface + altitude), 60f, 1080));
+            int selections = terrain.SelectionCount;
+            // Move 50 m horizontally (half the altitude): the LOD must follow.
+            Vector3 east = Vector3.Cross(Vector3.up, d).normalized;
+            Vector3 moved = (d * (surface + altitude) + east * (float)(50.0 / metersPerUnit));
+            terrain.Tick(new TerrainLodView(moved, 60f, 1080));
+            Assert.Greater(terrain.SelectionCount, selections, "Re-selected after a 50 m move at 100 m altitude (before: needed ~0.5 km)");
         }
     }
 }

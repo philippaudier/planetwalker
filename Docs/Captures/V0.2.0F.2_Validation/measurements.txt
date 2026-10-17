@@ -1,0 +1,6 @@
+A valley 1 km -> 1.7 m -> 1 km, 601 frames: frame diff median 5.96 p95 8.10 max 8.48; spike score max 1.0; pops 0; ground brightness 80.7..95.2, largest frame step 0.43
+B 10 m budget 384->1024 (384 -> 1023 patches): final lit mean diff 6.02 (80.5 % px > 2/255); albedo view 5.29; scale view 6.76; procedural mode lit 8.44
+B 10 m budget 512->1024 (510 -> 1023 patches): final lit mean diff 6.02 (80.5 % px > 2/255); albedo view 5.29; scale view 6.76; procedural mode lit 8.44
+B 100 m budget 384->1024 (384 -> 1023 patches): final lit mean diff 6.40 (73.8 % px > 2/255); albedo view 4.67; scale view 0.27; procedural mode lit 5.03
+B 100 m budget 512->1024 (510 -> 1023 patches): final lit mean diff 4.73 (63.0 % px > 2/255); albedo view 3.75; scale view 0.22; procedural mode lit 3.44
+C rebase at 10 m: before vs immediately after mean diff 0.000 (0.00 % px > 2/255); before vs stabilized 0.000 (0.00 %); stale-camera frame (diagnostic, 0.37 m) 4.285 (69.17 %); camera planet position change 0.0000 m

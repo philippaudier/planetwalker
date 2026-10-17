@@ -55,6 +55,38 @@ namespace Planetwalker.Terrain
         [Tooltip("Frames after which an incomplete warm-up still switches from the legacy faces (the covering is complete, only coarser).")]
         [Range(1, 600)]
         [SerializeField] int maxWarmupFrames = 120;
+        [Tooltip("Close-range ground layer (V0.2.0D, shader only): soil patches, rock on locally steep ground, fine bump. "
+            + "Shown with surface detail only; 0 = off.")]
+        [Range(0f, 1f)]
+        [SerializeField] float groundDetailStrength = 1f;
+
+        [Tooltip("Surface geology appearance (V0.2.0E, shader only): bedrock, sediment and soil, rock families, strata, "
+            + "erosion streaks, gravel near the ground. Off = the V0.2.0D look.")]
+        [SerializeField] bool geologyEnabled = true;
+        [Range(0f, 1f)]
+        [SerializeField] float geologyStrength = 1f;
+        [SerializeField] GeologyDebugView geologyDebugView = GeologyDebugView.None;
+        [Tooltip("Surface materials (V0.2.0F): physically based CC0 scans distributed by the geology, or the V0.2.0E procedural look.")]
+        [SerializeField] SurfaceMaterialMode materialMode = SurfaceMaterialMode.Pbr;
+        [Range(0f, 1f)]
+        [SerializeField] float pbrDetailStrength = 1f;
+        [SerializeField] SurfaceMaterialDebugView materialDebugView = SurfaceMaterialDebugView.FinalLit;
+
+        /// <summary>Period (meters) of the close-range ground noise; its origin is snapped to this lattice.</summary>
+        public const double GroundNoisePeriodMeters = 1024.0;
+        static readonly int GroundOriginId = Shader.PropertyToID("_GroundOrigin");
+        static readonly int GroundParamsId = Shader.PropertyToID("_GroundParams");
+        static readonly int GeoParamsId = Shader.PropertyToID("_GeoParams");
+        static readonly int PatchStitchId = Shader.PropertyToID("_PatchStitch");
+        static readonly int PatchMorphId = Shader.PropertyToID("_PatchMorph");
+        static readonly int SurfParamsId = Shader.PropertyToID("_SurfParams");
+        static readonly int SurfAlbedoId = Shader.PropertyToID("_SurfAlbedo");
+        static readonly int SurfNormalId = Shader.PropertyToID("_SurfNormal");
+        static readonly int SurfMaskId = Shader.PropertyToID("_SurfMask");
+        static readonly int SurfMeanId = Shader.PropertyToID("_SurfMean");
+        readonly Vector4[] surfaceMeans = new Vector4[SurfaceMaterials.Count];
+        string statusSource, pbrStatus;
+        TerrainVertex[] packed;
 
         PlanetVisualController visual;
         PlanetRenderFrame renderFrame;
@@ -103,6 +135,21 @@ namespace Planetwalker.Terrain
         public int MaxPendingBuilds { get => maxPendingBuilds; set => maxPendingBuilds = Mathf.Max(1, value); }
         public bool FreezeSelection { get => freezeSelection; set => freezeSelection = value; }
         public int MaxWarmupFrames { get => maxWarmupFrames; set => maxWarmupFrames = Mathf.Max(1, value); }
+        public float GroundDetailStrength { get => groundDetailStrength; set => groundDetailStrength = Mathf.Clamp01(value); }
+        /// <summary>Surface geology appearance (V0.2.0E; presentation only, never archived, no rebuild).</summary>
+        public bool GeologyEnabled { get => geologyEnabled; set => geologyEnabled = value; }
+        public float GeologyStrength { get => geologyStrength; set => geologyStrength = Mathf.Clamp01(value); }
+        public GeologyDebugView GeologyDebug { get => geologyDebugView; set => geologyDebugView = value; }
+        /// <summary>Surface material mode (V0.2.0F; presentation only, never archived, no rebuild).</summary>
+        public SurfaceMaterialMode MaterialMode { get => materialMode; set => materialMode = value; }
+        public float PbrDetailStrength { get => pbrDetailStrength; set => pbrDetailStrength = Mathf.Clamp01(value); }
+        public SurfaceMaterialDebugView MaterialDebug { get => materialDebugView; set => materialDebugView = value; }
+
+        /// <summary>True when the PBR materials are drawn (mode PBR, geology on, the library's arrays assembled).</summary>
+        public bool PbrActive { get; private set; }
+
+        /// <summary>Why the PBR mode is or is not active (diagnostics).</summary>
+        public string MaterialStatus { get; private set; } = "";
 
         /// <summary>Camera driving the selection and receiving the draws' priority (null: Camera.main).</summary>
         public Camera ViewCamera { get; set; }
@@ -140,7 +187,7 @@ namespace Planetwalker.Terrain
         public int ResidentPatches => meshes?.ResidentCount ?? 0;
         public int MeshSlots => meshes?.MeshCount ?? 0;
 
-        /// <summary>Estimated GPU memory of the patch meshes held (positions, normals, float colors, 16-bit indices).</summary>
+        /// <summary>Estimated GPU memory of the patch meshes held (interleaved <see cref="TerrainVertex"/>, 16-bit indices).</summary>
         public long EstimatedMeshBytes
         {
             get
@@ -150,7 +197,7 @@ namespace Planetwalker.Terrain
                     return 0;
                 }
                 PatchTopology t = snapshot.Topology;
-                return MeshSlots * ((long)t.VertexCount * (12 + 12 + 16) + (long)t.Indices(0).Length * 2);
+                return MeshSlots * ((long)t.VertexCount * TerrainVertex.Size + (long)t.Indices(0).Length * 2);
             }
         }
 
@@ -293,7 +340,13 @@ namespace Planetwalker.Terrain
             {
                 return true;
             }
-            float altitude = Mathf.Max(view.CameraPosition.magnitude - snapshot.Sampler.MinRadius, snapshot.Sampler.Radius * 1e-6f);
+            // Altitude above the ground under the camera (not above the planet's lowest possible point, ~250 km under
+            // a plain on an exaggerated Earth-scale planet: the selection then lagged ~0.5 km behind a low camera).
+            float cameraDistance = view.CameraPosition.magnitude;
+            Vector3 down = cameraDistance > 0f ? view.CameraPosition / cameraDistance : Vector3.up;
+            TerrainElevationSampler s = snapshot.Sampler;
+            float groundRadius = s.Radius * (1f + Mathf.Max(s.Elevation(down), s.Planet.SeaLevel));
+            float altitude = Mathf.Max(cameraDistance - groundRadius, s.Radius * 1e-6f);
             if ((view.CameraPosition - lastView.CameraPosition).magnitude > reselectAltitudeFraction * altitude)
             {
                 return true;
@@ -365,9 +418,16 @@ namespace Planetwalker.Terrain
                 mesh.Clear();
                 mesh.name = "Adaptive Terrain " + data.Id;
                 mesh.indexFormat = topology.VertexCount > 65535 ? IndexFormat.UInt32 : IndexFormat.UInt16;
-                mesh.SetVertices(data.Vertices);
-                mesh.SetNormals(data.Normals);
-                mesh.SetColors(data.Colors);
+                // One interleaved stream (V0.2.0E): positions, normals and colors as before, plus the coarser level's
+                // normal and the surface geology (TerrainVertex).
+                int count = topology.VertexCount;
+                if (packed == null || packed.Length != count)
+                {
+                    packed = new TerrainVertex[count];
+                }
+                TerrainVertex.Pack(data, packed, count);
+                mesh.SetVertexBufferParams(count, TerrainVertex.Layout);
+                mesh.SetVertexBufferData(packed, 0, 0, count, 0, MeshUpdateFlags.DontRecalculateBounds | MeshUpdateFlags.DontValidateIndices);
                 int mask = covering.IsLeaf(data.Id) ? covering.StitchMask(data.Id) : 0;
                 mesh.SetIndices(topology.Indices(mask), MeshTopology.Triangles, 0, false);
                 mesh.bounds = data.LocalBounds;
@@ -458,6 +518,7 @@ namespace Planetwalker.Terrain
             }
             block ??= new MaterialPropertyBlock();
             visual.WriteAdaptiveTerrainProperties(block);
+            WriteGroundDetail(block, camera != null ? camera : ViewCamera != null ? ViewCamera : Camera.main);
             var renderParams = new RenderParams(snapshot.DebugView == PlanetDebugView.None ? visual.TerrainMaterial : visual.DebugMaterial)
             {
                 camera = camera,
@@ -467,6 +528,7 @@ namespace Planetwalker.Terrain
                 receiveShadows = false,
             };
             float scale = Mathf.Abs(transform.lossyScale.x);
+            block.SetFloat(PatchMorphId, (float)snapshot.NormalMorphRows / snapshot.Resolution);
             foreach (PlanetPatchId leaf in covering.Leaves)
             {
                 if (!meshes.TryGet(leaf, out PatchMeshCache.Entry entry))
@@ -474,12 +536,109 @@ namespace Planetwalker.Terrain
                     continue; // cannot happen for a displayed leaf (protected); kept defensive
                 }
                 entry.LastUsedFrame = frame;
+                // Edges stitched to a coarser neighbor (V0.2.0E): the normals blend there towards the coarser level's,
+                // which the neighbor shows on the shared vertices (no lighting step at LOD boundaries). The block's
+                // values are copied by each draw call.
+                int mask = entry.Mask;
+                block.SetVector(PatchStitchId, new Vector4(mask & 1, (mask >> 1) & 1, (mask >> 2) & 1, (mask >> 3) & 1));
                 Matrix4x4 matrix = PatchMatrix(entry.Geometry.Origin);
                 Bounds local = entry.Geometry.LocalBounds;
                 renderParams.worldBounds = new Bounds(matrix.MultiplyPoint3x4(local.center), Vector3.one * (2f * local.extents.magnitude * scale));
                 Graphics.RenderMesh(renderParams, entry.Mesh, 0, matrix);
                 DrawnPatches++;
             }
+        }
+
+        /// <summary>
+        /// Close-range ground layer uniforms (V0.2.0D): the planet-space camera position, in meters, snapped to the
+        /// noise lattice in double and placed in render space through the floating origin (a small, precise float
+        /// vector near the camera). The shader's noise is periodic over the lattice, so a new snapped origin changes
+        /// nothing on screen. Off (enabled 0) without surface detail, or without a camera.
+        /// </summary>
+        public void WriteGroundDetail(MaterialPropertyBlock target, Camera viewer)
+        {
+            PlanetInstance planet = snapshot?.Planet;
+            bool ground = planet != null && planet.Definition.surfaceDetail && groundDetailStrength > 0f;
+            bool geology = planet != null && geologyEnabled && geologyStrength > 0f;
+            target.SetVector(GeoParamsId, geology && viewer != null
+                ? new Vector4(geologyStrength, (float)geologyDebugView, 1f, 0f)
+                : new Vector4(0f, (float)geologyDebugView, 0f, 0f));
+            if (viewer == null || (!ground && !geology))
+            {
+                target.SetVector(GroundParamsId, Vector4.zero);
+                WriteSurfaceMaterials(target, false);
+                return;
+            }
+            PlanetScale scale = planet.Scale;
+            Vector3d camera = renderFrame != null
+                ? renderFrame.RenderToPlanet(viewer.transform.position)
+                : new Vector3d(transform.InverseTransformPoint(viewer.transform.position));
+            double period = GroundNoisePeriodMeters;
+            double metersPerUnit = scale.MetersPerUnit;
+            var snapped = new Vector3d(
+                Math.Round(camera.x * metersPerUnit / period) * period * scale.UnitsPerMeter,
+                Math.Round(camera.y * metersPerUnit / period) * period * scale.UnitsPerMeter,
+                Math.Round(camera.z * metersPerUnit / period) * period * scale.UnitsPerMeter);
+            Vector3 origin = renderFrame != null ? renderFrame.PlanetToRender(snapped) : transform.TransformPoint(snapped.ToVector3());
+            target.SetVector(GroundOriginId, new Vector4(origin.x, origin.y, origin.z, (float)metersPerUnit));
+            // The origin and seed also anchor the geology's close-range noise (V0.2.0E); z: the V0.2.0D ground layer.
+            target.SetVector(GroundParamsId, new Vector4(groundDetailStrength, planet.Definition.seed & 0xFFFF, ground ? 1f : 0f, 0f));
+            WriteSurfaceMaterials(target, geology);
+        }
+
+        /// <summary>
+        /// Physically based materials (V0.2.0F): the library's arrays and per-layer means / tile sizes on the property
+        /// block, and the mode. PBR needs the geology (it distributes the materials) and the assembled arrays; otherwise
+        /// the procedural V0.2.0E appearance is drawn (mode 0) and <see cref="MaterialStatus"/> says why.
+        /// </summary>
+        public void WriteSurfaceMaterials(MaterialPropertyBlock target, bool geology)
+        {
+            PbrActive = false;
+            if (materialMode != SurfaceMaterialMode.Pbr)
+            {
+                MaterialStatus = "procedural (V0.2.0E)";
+            }
+            else if (!geology)
+            {
+                MaterialStatus = "procedural: PBR needs the geological appearance";
+            }
+            else
+            {
+                PlanetSurfaceLibrary library = PlanetSurfaceLibrary.Load();
+                if (library == null)
+                {
+                    MaterialStatus = "procedural: no surface library (Planetwalker > Build Surface Material Library)";
+                }
+                else if (!library.EnsureArrays())
+                {
+                    if (!ReferenceEquals(statusSource, library.Status))
+                    {
+                        statusSource = library.Status;
+                        pbrStatus = "procedural: " + statusSource;
+                    }
+                    MaterialStatus = pbrStatus;
+                }
+                else
+                {
+                    target.SetTexture(SurfAlbedoId, library.Albedo);
+                    target.SetTexture(SurfNormalId, library.Normal);
+                    target.SetTexture(SurfMaskId, library.Mask);
+                    for (int k = 0; k < SurfaceMaterials.Count; k++)
+                    {
+                        Color m = library.meanAlbedo[k];
+                        surfaceMeans[k] = new Vector4(m.r, m.g, m.b, library.tileMeters[k]);
+                    }
+                    target.SetVectorArray(SurfMeanId, surfaceMeans);
+                    PbrActive = true;
+                    if (!ReferenceEquals(statusSource, library.Status))
+                    {
+                        statusSource = library.Status; // the string is built once, not every frame
+                        pbrStatus = "PBR: " + statusSource;
+                    }
+                    MaterialStatus = pbrStatus;
+                }
+            }
+            target.SetVector(SurfParamsId, new Vector4(PbrActive ? 1f : 0f, pbrDetailStrength, PbrActive ? (float)materialDebugView : 0f, 0f));
         }
 
         void HideFaces()

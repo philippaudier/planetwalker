@@ -81,6 +81,35 @@ Shader "Planetwalker/PlanetAtmosphere"
                 return output;
             }
 
+            // Sky seen from inside the atmosphere (V0.2.0D). The limb model above integrates a thin, faint layer: right for
+            // the planet seen from space, but from the ground it leaves the daytime zenith almost black (~3%). This adds the
+            // sky dome a camera inside the layer sees, weighted by how deep it is in the layer (zero above it: the orbital
+            // look is unchanged): blue overhead, paler towards the horizon, a soft glow around the sun, lit by the sun's
+            // height at the camera (fades through the twilight, black at night). An approximation, not a scattering model.
+            half3 SkyFromInside(float3 origin, float3 ray, float3 lightDirection, float oceanRadius)
+            {
+                float thickness = max(1e-4, 1.0 - oceanRadius);
+                float height = saturate((length(origin) - oceanRadius) / thickness);
+                half inside = (1.0 - height) * (1.0 - height);
+                if (inside <= 0.0)
+                {
+                    return 0;
+                }
+                float3 up = normalize(origin);
+                float elevation = saturate(dot(ray, up));
+                half horizon = 1.0 - elevation;
+                half sunHeight = dot(up, lightDirection);
+                half day = smoothstep(-0.12, 0.3, sunHeight);
+                half3 zenith = _AtmosphereColor.rgb * 0.55;
+                half3 rim = lerp(_AtmosphereColor.rgb, half3(1.0, 1.0, 1.0), 0.45) * 0.62;
+                half3 sky = lerp(zenith, rim, horizon * horizon * horizon);
+                // Reddened near the horizon when the sun is low (the twilight tint, restrained).
+                half low = (1.0 - smoothstep(0.0, 0.35, sunHeight)) * horizon * horizon * _WarmStrength;
+                sky = lerp(sky, _WarmColor.rgb * 0.55, saturate(low));
+                half glow = pow(saturate(dot(ray, lightDirection)), 12.0) * 0.6;
+                return (sky + glow * lerp(half3(1.0, 1.0, 1.0), _WarmColor.rgb, low)) * (day * inside);
+            }
+
             half4 Frag(Varyings input) : SV_Target
             {
                 // Object space: shell = unit sphere, ocean sphere = _PlanetRatio.
@@ -105,6 +134,7 @@ Shader "Planetwalker/PlanetAtmosphere"
                 {
                     return 0; // the ocean / terrain shaders add their own haze
                 }
+                light += SkyFromInside(origin, ray, a.lightDirection, a.oceanRadius);
                 return half4(light * mainLight.color * _Strength, 0);
             }
             ENDHLSL

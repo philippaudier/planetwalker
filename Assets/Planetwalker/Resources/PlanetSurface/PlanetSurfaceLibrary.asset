@@ -1,0 +1,86 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0175b73239d55d644a604e93292b2c35, type: 3}
+  m_Name: PlanetSurfaceLibrary
+  m_EditorClassIdentifier: Planetwalker::Planetwalker.Terrain.PlanetSurfaceLibrary
+  albedoSources:
+  - {fileID: 2800000, guid: 896419a6a727280479a8dc15c1c10b2a, type: 3}
+  - {fileID: 2800000, guid: 5e8e250313f39454985f5b238339245f, type: 3}
+  - {fileID: 2800000, guid: 3307c9f9de2e8824eada4e081c746078, type: 3}
+  - {fileID: 2800000, guid: 3eb64ad134f0bac479ad31ff378ec0c0, type: 3}
+  - {fileID: 2800000, guid: 102892b8e2224ff4ebdf00ef74ae7f81, type: 3}
+  - {fileID: 2800000, guid: 6696a052184336e47bdbe89cba99c706, type: 3}
+  - {fileID: 2800000, guid: 09b73337ae9eaec498564be4338f09c6, type: 3}
+  - {fileID: 2800000, guid: e4ddd994047734e4fa3fb3fe99669490, type: 3}
+  - {fileID: 2800000, guid: 8f48e41af455e704794262cee977795f, type: 3}
+  - {fileID: 2800000, guid: 64223e450b6759e4da4dfda0989bd416, type: 3}
+  - {fileID: 2800000, guid: 0bba7cdc42496bd4bba81a418e57babc, type: 3}
+  normalSources:
+  - {fileID: 2800000, guid: 43502807e0612c048ba5dcf1f03d53c0, type: 3}
+  - {fileID: 2800000, guid: 5115ee1b6bf7da34593237d23b26132c, type: 3}
+  - {fileID: 2800000, guid: 59a0ca28b7206e94b8614ecdbd45ed59, type: 3}
+  - {fileID: 2800000, guid: ea5001ef2ca4b0e4197d06eec0a3a2ce, type: 3}
+  - {fileID: 2800000, guid: 1720496a985e4be479d8f7d14c732a54, type: 3}
+  - {fileID: 2800000, guid: e94e3aaff20b36249bcb4c0fcbac886a, type: 3}
+  - {fileID: 2800000, guid: 37bce6a2643719b46a263312be65bf89, type: 3}
+  - {fileID: 2800000, guid: 979ed3ebcf4776440a5494c3bf3386a8, type: 3}
+  - {fileID: 2800000, guid: 21057b64de629db4ebd5ba0b53aafe3c, type: 3}
+  - {fileID: 2800000, guid: 2c637902d1c1d5148bc1c41056f9fe1f, type: 3}
+  - {fileID: 2800000, guid: 0fb7226d3bfbda4419e04d35154f0e18, type: 3}
+  maskSources:
+  - {fileID: 2800000, guid: 9ce74261ef7c7274794c4d78210987a9, type: 3}
+  - {fileID: 2800000, guid: 747ee1e0be6f62b44835f9344508c9c8, type: 3}
+  - {fileID: 2800000, guid: 2dfeb821cf3aa754c9e1382a0e704b70, type: 3}
+  - {fileID: 2800000, guid: 833c1b9bb54c22d42aeec44d0d935f31, type: 3}
+  - {fileID: 2800000, guid: 79e860ded74be4c41ad03342e3583071, type: 3}
+  - {fileID: 2800000, guid: 59fde24eab743cd4cbb74d539f1f4568, type: 3}
+  - {fileID: 2800000, guid: a5403ba1537ce2a41b0b92749938f31e, type: 3}
+  - {fileID: 2800000, guid: 1e7e1810632caf74ba71cc3f03b6fb63, type: 3}
+  - {fileID: 2800000, guid: 77857664b8a79d54ba81c8f23ac58000, type: 3}
+  - {fileID: 2800000, guid: d2a5b514936edcf43bf80de41881d6da, type: 3}
+  - {fileID: 2800000, guid: cea1fff1c4295aa4499c31b7bcf03c29, type: 3}
+  names:
+  - Granite
+  - Sandstone
+  - Limestone
+  - Basalt
+  - DrySand
+  - Gravel
+  - Grass
+  - DryGrass
+  - Forest
+  - Soil
+  - Snow
+  tileMeters:
+  - 2
+  - 2
+  - 2
+  - 2
+  - 2
+  - 2
+  - 2
+  - 2
+  - 2
+  - 2
+  - 2
+  meanAlbedo:
+  - {r: 0.16143864, g: 0.119953886, b: 0.08443347, a: 1}
+  - {r: 0.21342166, g: 0.09217385, b: 0.034330465, a: 1}
+  - {r: 0.41913784, g: 0.29743037, b: 0.17346357, a: 1}
+  - {r: 0.04362104, g: 0.034594998, b: 0.025697162, a: 1}
+  - {r: 0.29359862, g: 0.16328916, b: 0.077455424, a: 1}
+  - {r: 0.19838467, g: 0.16945566, b: 0.1377113, a: 1}
+  - {r: 0.12940803, g: 0.16353588, b: 0.035314456, a: 1}
+  - {r: 0.15938012, g: 0.11988378, b: 0.04985263, a: 1}
+  - {r: 0.29476655, g: 0.2510341, b: 0.12253142, a: 1}
+  - {r: 0.11651165, g: 0.097536, b: 0.07484601, a: 1}
+  - {r: 0.379219, g: 0.37867534, b: 0.38875914, a: 1}

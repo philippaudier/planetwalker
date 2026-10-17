@@ -1,0 +1,12 @@
+Diag valley 10 m budget 384: visible 192 leaves, levels L0x1 L1x5 L2x9 L3x10 L4x10 L5x13 L6x11 L7x10 L8x10 L9x12 L10x11 L11x14 L12x14 L13x14 L14x16 L15x24 L16x8, camera render -0,000004,0,000000,-0,000003, procedural luma 83,7
+Diag valley 10 m budget 1024: visible 341 leaves, levels L0x1 L1x5 L2x9 L3x10 L4x10 L5x13 L6x11 L7x10 L8x10 L9x11 L10x9 L11x11 L12x14 L13x11 L14x23 L15x83 L16x100, camera render -0,000004,0,000000,-0,000003, procedural luma 84,7
+Diag valley 10 m: visible leaves identical 147/192 (384) vs 341 (1024); normal view diff 12.63; procedural diff 3.43
+Diag valley 100 m budget 384: visible 174 leaves, levels L0x1 L1x5 L2x9 L3x10 L4x10 L5x13 L6x11 L7x10 L8x10 L9x12 L10x11 L11x14 L12x12 L13x12 L14x16 L15x18, camera render -0,000001,0,000000,0,000003, procedural luma 85,7
+Diag valley 100 m budget 1024: visible 348 leaves, levels L0x1 L1x5 L2x9 L3x10 L4x10 L5x13 L6x11 L7x10 L8x10 L9x11 L10x9 L11x11 L12x13 L13x15 L14x25 L15x86 L16x99, camera render -0,000001,0,000000,0,000003, procedural luma 83,3
+Diag valley 100 m: visible leaves identical 132/174 (384) vs 348 (1024); normal view diff 8.37; procedural diff 3.94
+Diag mountain 10 m budget 384: visible 123 leaves, levels L0x1 L1x7 L2x8 L3x7 L4x9 L5x11 L6x8 L7x5 L8x5 L9x7 L10x8 L11x7 L12x6 L13x6 L14x15 L15x13, camera render 0,000000,0,000002,0,000003, procedural luma 39,2
+Diag mountain 10 m budget 1024: visible 140 leaves, levels L0x1 L1x7 L2x8 L3x7 L4x9 L5x11 L6x8 L7x5 L8x4 L9x6 L10x6 L11x11 L12x8 L13x6 L15x11 L16x32, camera render 0,000000,0,000002,0,000003, procedural luma 39,2
+Diag mountain 10 m: visible leaves identical 87/123 (384) vs 140 (1024); normal view diff 9.50; procedural diff 0.00
+Diag mountain 100 m budget 384: visible 127 leaves, levels L0x1 L1x7 L2x8 L3x7 L4x9 L5x12 L6x9 L7x4 L8x5 L9x7 L10x9 L11x5 L12x5 L13x5 L14x15 L15x12 L16x7, camera render 0,000000,0,000000,0,000001, procedural luma 39,2
+Diag mountain 100 m budget 1024: visible 141 leaves, levels L0x1 L1x7 L2x8 L3x7 L4x9 L5x12 L6x9 L7x4 L8x4 L9x6 L10x6 L11x11 L12x8 L13x6 L15x12 L16x31, camera render 0,000000,0,000000,0,000001, procedural luma 39,2
+Diag mountain 100 m: visible leaves identical 87/127 (384) vs 141 (1024); normal view diff 3.67; procedural diff 0.00

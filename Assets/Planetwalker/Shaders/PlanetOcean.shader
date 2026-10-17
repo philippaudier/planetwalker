@@ -45,6 +45,12 @@ Shader "Planetwalker/PlanetOcean"
         [HideInInspector] _CloudLocalScale ("Planet units per object unit", Float) = 1
         // Night darkness (V0.1.2D), set per renderer; 1 (default) = ambient everywhere (previous look).
         [HideInInspector] _NightAmbient ("Ambient kept on the night side", Float) = 1
+        // Skylight on the day side (V0.2.0D), times the atmosphere strength.
+        _SkylightStrength ("Skylight Strength", Range(0, 1)) = 0.35
+        // Shallow water at the shore (V0.2.0F), set per renderer: meters per world unit, clarity depth (m), enabled.
+        // The water thickness along the view ray comes from the camera depth texture (opaque terrain behind the water).
+        [HideInInspector] _ShoreParams ("Meters per unit, clarity depth, enabled, -", Vector) = (1, 3, 0, 0)
+        _ShoreColor ("Shallow Water Tint", Color) = (0.10, 0.42, 0.44, 1)
     }
 
     SubShader
@@ -101,7 +107,11 @@ Shader "Planetwalker/PlanetOcean"
                 float4 _CloudSeed;
                 float _CloudLocalScale;
                 half _NightAmbient;
+                half _SkylightStrength;
+                float4 _ShoreParams;
+                half4 _ShoreColor;
             CBUFFER_END
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
 
             #include "PlanetCloudsCommon.hlsl"
 
@@ -133,21 +143,21 @@ Shader "Planetwalker/PlanetOcean"
                 return output;
             }
 
-            half4 FlatOcean(float3 normalWS, float3 viewWS, Light mainLight, half ambientScale)
+            half4 FlatOcean(float3 normalWS, float3 viewWS, Light mainLight, half ambientScale, half3 skylight)
             {
                 half ndl = saturate(dot(normalWS, mainLight.direction));
                 half fresnel = pow(1.0 - saturate(dot(normalWS, viewWS)), _FresnelPower);
                 float3 halfDir = normalize(mainLight.direction + viewWS);
                 half glint = pow(saturate(dot(normalWS, halfDir)), _SpecularPower) * _SpecularStrength * ndl;
 
-                half3 ambient = SampleSH(normalWS) * _AmbientStrength * ambientScale;
+                half3 ambient = SampleSH(normalWS) * _AmbientStrength * ambientScale + skylight;
                 half3 water = lerp(_Color.rgb, _RimColor.rgb, fresnel);
                 half3 color = water * (mainLight.color * ndl + ambient) + mainLight.color * glint;
                 half alpha = saturate(lerp(_Opacity, 1.0, fresnel) + glint);
                 return half4(color, alpha);
             }
 
-            half4 BathymetryOcean(float3 normalWS, float3 viewWS, Light mainLight, float2 depth, half ambientScale)
+            half4 BathymetryOcean(float3 normalWS, float3 viewWS, Light mainLight, float2 depth, half ambientScale, half3 skylight)
             {
                 // Depth color: smooth curve of the normalized depth (no thresholds: no contour lines).
                 float deep = saturate(depth.x / 1.2);
@@ -163,7 +173,7 @@ Shader "Planetwalker/PlanetOcean"
                 half wrapped = saturate((nl + _LightWrap) / (1.0 + _LightWrap));
                 half nv = saturate(dot(normalWS, viewWS));
                 half fresnel = pow(1.0 - nv, _FresnelPower);
-                half3 ambient = SampleSH(normalWS) * _AmbientStrength * ambientScale;
+                half3 ambient = SampleSH(normalWS) * _AmbientStrength * ambientScale + skylight;
                 half3 lit = lerp(water, _RimColor.rgb, fresnel * 0.6) * (mainLight.color * wrapped + ambient);
 
                 // GGX highlight (URP's minimal BRDF form), Schlick Fresnel from water's F0 = 0.02. Clamped
@@ -207,9 +217,34 @@ Shader "Planetwalker/PlanetOcean"
                 {
                     surfaceLight.color *= PlanetShadow(input.positionWS, _AtmoShell.xyz, mainLight.direction, -0.1);
                 }
+                // Skylight on the day side (V0.2.0D, the terrain's term): the water scatters the sky's light too.
+                half3 skylight = 0;
+                if (_AtmoParams.w > 0.0)
+                {
+                    skylight = _AtmoColor.rgb * mainLight.color * (SkylightAmount(input.positionWS, _AtmoShell.xyz, mainLight.direction) * _SkylightStrength * _AtmoParams.w);
+                }
                 half4 color = _OceanShading > 0.5
-                    ? BathymetryOcean(normalWS, viewWS, surfaceLight, input.depth, ambientScale)
-                    : FlatOcean(normalWS, viewWS, surfaceLight, ambientScale);
+                    ? BathymetryOcean(normalWS, viewWS, surfaceLight, input.depth, ambientScale, skylight)
+                    : FlatOcean(normalWS, viewWS, surfaceLight, ambientScale, skylight);
+                // Shallow water (V0.2.0F coastal pass): the water's thickness along the view ray, in meters, from the
+                // depth of the opaque terrain behind it (camera depth texture; none behind = deep). Clear and turquoise
+                // over the first meters, so the wet sand and rock under the surface show and the shore is not a hard
+                // line between bright land and near-black water; deep water unchanged. The waterline stays where the
+                // terrain meets the sea (a cliff keeps its sharp edge: the water deepens at once). No foam.
+                if (_ShoreParams.z > 0.5)
+                {
+                    float2 screenUV = input.positionCS.xy / _ScaledScreenParams.xy;
+                    float sceneEye = LinearEyeDepth(SampleSceneDepth(screenUV), _ZBufferParams);
+                    float waterEye = -TransformWorldToView(input.positionWS).z;
+                    float toWater = length(input.positionWS - _WorldSpaceCameraPos);
+                    float pathMeters = max(sceneEye - waterEye, 0.0) * (toWater / max(waterEye, 1e-6)) * _ShoreParams.x;
+                    half clarity = exp(-pathMeters / max(_ShoreParams.y, 0.01));
+                    half3 shoreLit = _ShoreColor.rgb * (surfaceLight.color * saturate(dot(normalWS, mainLight.direction))
+                        + SampleSH(normalWS) * _AmbientStrength * ambientScale + skylight);
+                    half tint = saturate(clarity * 2.0) * (1.0 - clarity); // strongest over a meter or two of water
+                    color.rgb = lerp(color.rgb, shoreLit, tint * 0.8);
+                    color.a *= 1.0 - 0.85 * clarity;
+                }
                 if (_AtmoParams.w > 0.0)
                 {
                     AtmosphereInputs a;

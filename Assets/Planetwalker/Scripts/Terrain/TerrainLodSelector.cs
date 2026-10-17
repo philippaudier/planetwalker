@@ -35,11 +35,11 @@ namespace Planetwalker.Terrain
 
         [Tooltip("Most leaf patches in a selection; above it the covering stays coarser (never incomplete).")]
         [Range(6, 8192)]
-        public int maxLeafPatches = 512;
+        public int maxLeafPatches = 1024; // V0.2.0F.3: 512 before (more detail near the ground)
 
         [Tooltip("Most patch meshes kept by the diagnostic preview (least recently used are destroyed).")]
         [Range(6, 8192)]
-        public int maxPatchMeshes = 768;
+        public int maxPatchMeshes = 2112; // room for two coverings at the default budget (2 x 1024 + 64)
 
         [Tooltip("Assumed steepest terrain slope (rise / run) for the displacement error bound. 1 = 45 degrees.")]
         [Range(0.1f, 10f)]
@@ -182,7 +182,8 @@ namespace Planetwalker.Terrain
     /// Refinement: the leaf with the largest projected error is split first (ties by patch key), until no leaf
     /// exceeds the threshold, the depth limit is reached, or the budget is exhausted. A split first splits any
     /// coarser edge neighbor (2:1 balance, so edges only ever meet one level apart); a split that would exceed the
-    /// budget is not made and refinement stops: the covering stays complete and coarser. Hysteresis: a patch that
+    /// budget is skipped and refinement continues with the candidates that still fit (stops when not even a single
+    /// split fits): the covering stays complete and coarser. Hysteresis: a patch that
     /// was split in the previous selection stays split while its error exceeds threshold * (1 - hysteresis), and
     /// candidates are ranked by error relative to their own threshold, so previously split patches also win when
     /// the budget runs out (no churn of the last splits under tiny camera moves).
@@ -215,6 +216,7 @@ namespace Planetwalker.Terrain
         float pixelsPerRadian;
         float horizonCos;
         bool cameraInsideRelief;
+        float cameraAltitude;
         int maxLevel;
         Plane[] frustum;
 
@@ -305,6 +307,9 @@ namespace Planetwalker.Terrain
             pixelsPerRadian = view.PixelsPerRadian;
             frustum = view.Frustum != null && view.Frustum.Length == 6 && settings.offscreenErrorScale < 1f ? view.Frustum : null;
             cameraInsideRelief = cameraDistance <= planet.MaxRadius;
+            // Height above the ground (or the sea) under the camera: the floor of every patch distance (see ScreenError).
+            float groundUnder = planet.Radius * (1f + Mathf.Max(planet.Elevation(cameraDirection), planet.Planet.SeaLevel));
+            cameraAltitude = Mathf.Max(cameraDistance - groundUnder, planet.Radius * 1e-7f);
             if (!cameraInsideRelief)
             {
                 // A point of the terrain can be seen when its angle from the camera direction is at most
@@ -314,51 +319,8 @@ namespace Planetwalker.Terrain
                 horizonCos = Mathf.Cos(Mathf.Min(horizon, Mathf.PI));
             }
 
-            selection.LeafSet.Clear();
-            splitPatches.Clear();
-            heapCount = 0;
             int budget = Math.Max(settings.maxLeafPatches, 6);
-            bool budgetLimited = false, depthLimited = false;
-            int splits = 0, balanceSplits = 0;
-
-            // Uniform start at the coarsest level (fits the budget by construction).
-            int size = 1 << minLevel;
-            for (int face = 0; face < 6; face++)
-            {
-                for (int y = 0; y < size; y++)
-                {
-                    for (int x = 0; x < size; x++)
-                    {
-                        var id = new PlanetPatchId(face, minLevel, x, y);
-                        selection.LeafSet.Add(id);
-                        Consider(id, ref depthLimited);
-                    }
-                }
-            }
-            while (heapCount > 0)
-            {
-                Candidate top = Pop();
-                if (!selection.LeafSet.Contains(top.Id))
-                {
-                    continue; // already split as a balance requirement
-                }
-                forced.Clear();
-                planned.Clear();
-                CollectForced(top.Id);
-                int cost = 3 * (forced.Count + 1);
-                if (selection.LeafSet.Count + cost > budget)
-                {
-                    budgetLimited = true;
-                    break; // stay coarser everywhere from here on: complete covering, budget respected
-                }
-                foreach (PlanetPatchId f in forced)
-                {
-                    Split(f, ref depthLimited);
-                    balanceSplits++;
-                }
-                Split(top.Id, ref depthLimited);
-                splits++;
-            }
+            bool budgetLimited = Refine(minLevel, budget, out bool depthLimited, out int splits, out int balanceSplits);
 
             // Publish (sorted, deterministic) and remember which patches were split (hysteresis).
             selection.LeafList.Clear();
@@ -401,6 +363,69 @@ namespace Planetwalker.Terrain
             return selection;
         }
 
+        /// <summary>
+        /// The refinement: from the uniform coarsest covering, splits (largest relative error first) every patch whose
+        /// error exceeds the threshold, within the budget. True when the budget stopped a split that the error asked for.
+        /// </summary>
+        bool Refine(int minLevel, int budget, out bool depthLimited, out int splits, out int balanceSplits)
+        {
+            selection.LeafSet.Clear();
+            splitPatches.Clear();
+            heapCount = 0;
+            bool budgetLimited = false;
+            depthLimited = false;
+            splits = 0;
+            balanceSplits = 0;
+
+            // Uniform start at the coarsest level (fits the budget by construction).
+            int size = 1 << minLevel;
+            for (int face = 0; face < 6; face++)
+            {
+                for (int y = 0; y < size; y++)
+                {
+                    for (int x = 0; x < size; x++)
+                    {
+                        var id = new PlanetPatchId(face, minLevel, x, y);
+                        selection.LeafSet.Add(id);
+                        Consider(id, ref depthLimited);
+                    }
+                }
+            }
+            while (heapCount > 0)
+            {
+                Candidate top = Pop();
+                if (!selection.LeafSet.Contains(top.Id))
+                {
+                    continue; // already split as a balance requirement
+                }
+                forced.Clear();
+                planned.Clear();
+                CollectForced(top.Id);
+                int cost = 3 * (forced.Count + 1);
+                if (selection.LeafSet.Count + cost > budget)
+                {
+                    // This split (with its balance splits) does not fit: skip it, cheaper ones may still fit. Stopping
+                    // at the first one that does not fit made the final leaf count, and so the last splits under the
+                    // camera, depend on which candidate happened to be the expensive one (flicker while moving).
+                    budgetLimited = true;
+                    if (selection.LeafSet.Count + 3 > budget)
+                    {
+                        break; // not even a single split fits
+                    }
+                    continue;
+                }
+                foreach (PlanetPatchId f in forced)
+                {
+                    Split(f, ref depthLimited);
+                    balanceSplits++;
+                }
+                Split(top.Id, ref depthLimited);
+                splits++;
+            }
+
+            return budgetLimited;
+        }
+
         /// <summary>Projected error in pixels of a patch for the current camera (0 when entirely beyond the horizon).</summary>
         public float ScreenError(PlanetPatchId id)
         {
@@ -425,7 +450,24 @@ namespace Planetwalker.Terrain
             float boundSq = Mathf.Max(rMin * rMin + midRadius * midRadius - 2f * rMin * midRadius * cosA,
                 rMax * rMax + midRadius * midRadius - 2f * rMax * midRadius * cosA);
             float boundingRadius = Mathf.Sqrt(Mathf.Max(boundSq, 0f));
-            float distance = Mathf.Max((camera - c).magnitude - boundingRadius, sampler.Radius * 1e-7f);
+            // Distance to the patch: to its bounding sphere, but never less than lower bounds that stay informative
+            // when the camera is inside that sphere (low over the ground, the spheres of the neighboring patches
+            // contain it too): the height above the patch's highest point, the horizontal gap to its footprint, and
+            // the camera's height above the ground under it. Without them those errors saturated (a near-zero
+            // distance): ties were broken by patch key (the refinement drifted to one side of the camera), and
+            // whole chains of patches were split down to the deepest level whenever the camera crossed into a
+            // bounding volume, then merged again (budget-limited flicker while moving).
+            float sphereDistance = (camera - c).magnitude - boundingRadius;
+            float heightAboveTop = cameraDistance - rMax;
+            // atan2(|a x b|, a . b): precise at small angles (acos of a float dot near 1 has a ~0.35 mrad noise floor,
+            // about 2 km on the ground: far larger than the finest patches, whose errors then flickered).
+            float angleToCenter = Mathf.Atan2(Vector3.Cross(center, cameraDirection).magnitude, Vector3.Dot(center, cameraDirection));
+            float horizontalGap = (angleToCenter - angularRadius) * rMin;
+            // Horizontal gap and camera altitude combined (sqrt(gap^2 + altitude^2)): the patch under the camera is always
+            // strictly the closest of its neighbors (with a plain max they tied, and ties went to the lower patch key).
+            float gap = Mathf.Max(horizontalGap, 0f);
+            float floor = Mathf.Sqrt(gap * gap + cameraAltitude * cameraAltitude);
+            float distance = Mathf.Max(Mathf.Max(sphereDistance, heightAboveTop), floor);
             float error = levelError[id.Level] * pixelsPerRadian / distance;
             if (frustum != null)
             {
@@ -521,8 +563,7 @@ namespace Planetwalker.Terrain
                 depthLimited = true;
                 return;
             }
-            // Priority = error relative to the patch's own threshold: previously split patches rank higher, so the
-            // hysteresis also keeps a budget-limited covering stable.
+            // Priority = error relative to the patch's own threshold: previously split patches rank higher.
             Push(new Candidate { Error = error / Mathf.Max(threshold, 1e-6f), Id = id });
         }
 

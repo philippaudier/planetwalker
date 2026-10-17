@@ -313,7 +313,7 @@ namespace Planetwalker.UI
                 && oceanShadingToggle != null && atmosphereToggle != null && terminatorSlider != null
                 && cloudToggle != null && cloudAltitudeSlider != null && cloudLegendBar != null && cloudSkyLabel != null
                 && solarTimeSlider != null && contemplateButton != null && showControlsButton != null && contemplationHint != null
-                && ArchiveLayoutComplete() && AdaptiveLayoutComplete() && SurfaceDetailLayoutComplete())
+                && ArchiveLayoutComplete() && AdaptiveLayoutComplete() && SurfaceDetailLayoutComplete() && ExplorationLayoutComplete() && GeologyLayoutComplete() && MaterialsLayoutComplete())
             {
                 return;
             }
@@ -401,6 +401,9 @@ namespace Planetwalker.UI
             biomeAlpineSlider.onValueChanged.AddListener(OnBiomeSettingChanged);
             EnableAdaptiveTerrain();
             EnableSurfaceDetail();
+            EnableExploration();
+            EnableGeology();
+            EnableMaterials();
             EnableArchive();
             if (bootstrap != null)
             {
@@ -482,6 +485,9 @@ namespace Planetwalker.UI
             biomeAlpineSlider.onValueChanged.RemoveListener(OnBiomeSettingChanged);
             DisableAdaptiveTerrain();
             DisableSurfaceDetail();
+            DisableExploration();
+            DisableGeology();
+            DisableMaterials();
             DisableArchive();
             if (bootstrap != null)
             {
@@ -525,6 +531,8 @@ namespace Planetwalker.UI
             SyncHydrologyToggle();
             UpdateArchive();
             UpdateAdaptiveStats();
+            UpdateExplorationStats();
+            UpdateMaterialStatus();
         }
 
         void LateUpdate()
@@ -1911,7 +1919,7 @@ namespace Planetwalker.UI
             panelScroll.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.AutoHide;
 
             CreateLabel(panel, font, "PLANETWALKER", 26, FontStyle.Bold, TextColor, 32f);
-            CreateLabel(panel, font, "GENESIS V0.2.0B", 14, FontStyle.Normal, AccentColor, 20f);
+            CreateLabel(panel, font, "GENESIS V0.2.0F", 14, FontStyle.Normal, AccentColor, 20f);
             CreateSpacer(panel, 6f);
             BuildArchiveSection(panel, font);
             worldLibrary = WorldLibraryPanel.Create(transform, font);
@@ -1938,6 +1946,9 @@ namespace Planetwalker.UI
                 Mathf.CeilToInt(PlanetDefinition.MinResolution / 16f), PlanetDefinition.MaxResolution / 16, true, out resolutionValue);
 
             BuildSurfaceDetailSection(panel, font);
+            BuildExplorationSection(panel, font);
+            BuildGeologySection(panel, font);
+            BuildMaterialsSection(panel, font);
 
             CreateSpacer(panel, 4f);
             CreateLabel(panel, font, "SURFACE", 13, FontStyle.Bold, AccentColor, 18f);

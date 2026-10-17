@@ -208,6 +208,45 @@ namespace Planetwalker.Rendering
             OceanRenderer?.SetPropertyBlock(oceanProperties);
         }
 
+        static readonly int CloudZTestId = Shader.PropertyToID("_CloudZTest");
+        Material cloudDepthTestedMaterial;
+        Material cloudDepthTestedSource;
+
+        /// <summary>
+        /// True when a camera at this world position is within the relief layer or under the cloud layer (V0.2.0D):
+        /// the clouds are then depth tested, so relief (exaggerated: it can rise above the layer) hides what is behind
+        /// it. From orbit (above both) they are drawn without depth test, as before.
+        /// </summary>
+        public bool CloudsNeedDepthTest(Vector3 cameraWorldPosition)
+        {
+            if (Planet == null)
+            {
+                return false;
+            }
+            float scale = Mathf.Max(Mathf.Abs(transform.lossyScale.x), 1e-9f);
+            float distance = (cameraWorldPosition - transform.position).magnitude / scale;
+            float reliefTop = Planet.Radius * (1f + Mathf.Max(Planet.MaxElevation, Planet.SeaLevel));
+            return distance < Mathf.Max(reliefTop, CloudRadius) * 1.02f;
+        }
+
+        /// <summary>Cloud material for a camera position: the depth-tested variant near the ground (created once).</summary>
+        public Material CloudMaterialFor(Vector3 cameraWorldPosition)
+        {
+            Material source = CloudMaterialInUse;
+            if (source == null || !CloudsNeedDepthTest(cameraWorldPosition))
+            {
+                return source;
+            }
+            if (cloudDepthTestedMaterial == null || cloudDepthTestedSource != source)
+            {
+                DestroySafe(cloudDepthTestedMaterial);
+                cloudDepthTestedMaterial = new Material(source) { name = source.name + " (Depth Tested)", hideFlags = HideFlags.DontSave };
+                cloudDepthTestedMaterial.SetFloat(CloudZTestId, (float)CompareFunction.LessEqual);
+                cloudDepthTestedSource = source;
+            }
+            return cloudDepthTestedMaterial;
+        }
+
         void DrawClouds(Camera target = null)
         {
             if (!CloudsVisible || cloudMesh == null || Planet == null)
@@ -215,7 +254,9 @@ namespace Planetwalker.Rendering
                 return;
             }
             float radius = CloudRadius;
-            var renderParams = new RenderParams(CloudMaterialInUse)
+            Camera viewer = target != null ? target : Camera.main;
+            Material material = viewer != null ? CloudMaterialFor(viewer.transform.position) : CloudMaterialInUse;
+            var renderParams = new RenderParams(material)
             {
                 camera = target,
                 matProps = cloudProperties,
@@ -290,6 +331,9 @@ namespace Planetwalker.Rendering
             cloudMesh = null;
             DestroySafe(ownedCloudMaterial);
             ownedCloudMaterial = null;
+            DestroySafe(cloudDepthTestedMaterial);
+            cloudDepthTestedMaterial = null;
+            cloudDepthTestedSource = null;
             DestroySafe(cloudCube);
             cloudCube = null;
             builtCloudField = null;

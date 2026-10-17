@@ -128,6 +128,77 @@ float CloudPotential(float3 d, int octaves, out float convective)
     return CloudPotential(d, octaves, convective, grain);
 }
 
+// ---- Close-range cloud detail (V0.2.0D) -----------------------------------------------------------------------
+// The detail above stops at ~R / 300 (about 50 km at Earth scale): right from orbit, but from the ground a pixel of the
+// layer covers tens of meters, so the clouds read as smooth white masses. These octaves continue the spectrum from
+// that scale down to ~200 m, each faded out with the pixel footprint (radians on the unit sphere): nothing changes
+// from orbit, the finer ones appear as the camera comes close. They move with the same flow map as the field.
+// towardSun: the same octaves sampled half a cell towards the sun (per octave), for relief shading.
+#define CLOUD_FINE_FREQUENCY 270.0
+#define CLOUD_FINE_OCTAVES 8
+
+// Weight of a fine octave of this frequency (cells per unit) for a footprint: 1 while a cell spans 4+ pixels, 0 at 2.
+float CloudFineWeight(float frequency, float footprint)
+{
+    return saturate(2.0 - 4.0 * footprint * frequency);
+}
+
+float CloudFineAt(float3 a, float3 sunTangent, float footprint, out float towardSun, out float coverage)
+{
+    float3 p = a * CLOUD_FINE_FREQUENCY + _CloudSeed.xyz * 3.1 + 41.0;
+    float frequency = CLOUD_FINE_FREQUENCY;
+    float amplitude = 1.0;
+    float sum = 0.0;
+    towardSun = 0.0;
+    coverage = 0.0;
+    for (int i = 0; i < CLOUD_FINE_OCTAVES; i++)
+    {
+        float w = CloudFineWeight(frequency, footprint);
+        if (w <= 0.0)
+        {
+            break; // finer octaves are even smaller
+        }
+        // Billowy (puffy cauliflower lobes) blended with plain noise (streaks).
+        float n = CloudNoise(p);
+        float ns = CloudNoise(p + sunTangent * 0.5);
+        float b = 0.3 - abs(n) * 1.6; // about zero-mean (no coverage bias)
+        float bs = 0.3 - abs(ns) * 1.6;
+        sum += amplitude * w * lerp(n, b, 0.6);
+        towardSun += amplitude * w * lerp(ns, bs, 0.6);
+        coverage = max(coverage, w);
+        amplitude *= 0.58;
+        frequency *= 2.03;
+        p = p * 2.03 + 11.7;
+    }
+    return sum;
+}
+
+// Fine detail (zero-mean, faded) at a direction and the simulation time, with the field's two-sample flow map.
+float CloudFine(float3 d, float3 sunTangent, float footprint, out float towardSun, out float coverage)
+{
+    towardSun = 0.0;
+    coverage = 0.0;
+    if (CloudFineWeight(CLOUD_FINE_FREQUENCY, footprint) <= 0.0)
+    {
+        return 0.0;
+    }
+    float3 axis = _CloudParams3.xyz;
+    float time = _CloudParams3.w;
+    float phase = frac(time / CLOUD_MOTION_PERIOD);
+    float w1 = 1.0 - abs(2.0 * phase - 1.0);
+    float3 a2 = CloudAdvect(d, axis, (frac(phase + 0.5) - 0.5) * CLOUD_MOTION_PERIOD);
+    float fine = CloudFineAt(a2, sunTangent, footprint, towardSun, coverage);
+    if (w1 > 1e-4)
+    {
+        float sun1, coverage1;
+        float3 a1 = CloudAdvect(d, axis, (phase - 0.5) * CLOUD_MOTION_PERIOD);
+        float fine1 = CloudFineAt(a1, sunTangent, footprint, sun1, coverage1);
+        fine = lerp(fine, fine1, w1);
+        towardSun = lerp(towardSun, sun1, w1);
+    }
+    return fine;
+}
+
 // Cloud alpha (0 .. density) at a direction.
 float CloudAlpha(float3 d, int octaves)
 {

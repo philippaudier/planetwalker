@@ -476,7 +476,7 @@ namespace Planetwalker.Tests
                         builder.Build(snapshot, s.Leaves[i * s.Count / built], data);
                     }
                     double buildMs = watch.Elapsed.TotalMilliseconds / built;
-                    long bytes = (2L * 512 + 64) * (snapshot.Topology.VertexCount * 40L + snapshot.Topology.Indices(0).Length * 2L);
+                    long bytes = (2L * new AdaptiveTerrainSettings().maxLeafPatches + 64) * (snapshot.Topology.VertexCount * 40L + snapshot.Topology.Indices(0).Length * 2L);
                     lines.Add(string.Format(CultureInfo.InvariantCulture, "{0} | {1} | {2} | {3}-{4} | {5:0.00} | {6:0.00} | {7:0.0}",
                         seed, name, s.Count, s.MinLevel, s.MaxLevel, selectMs, buildMs, bytes / (1024.0 * 1024.0)));
                     Assert.Less(selectMs, 50.0);

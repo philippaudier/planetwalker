@@ -98,11 +98,22 @@ namespace Planetwalker.Generation
         public static int DirectionToFaceCoordinates(Vector3d direction, out double a, out double b)
         {
             int face = DominantFace(direction);
+            FaceCoordinates(direction, face, 1.0, out a, out b);
+            return face;
+        }
+
+        /// <summary>
+        /// Coordinates of a direction in a given face's parametrization (V0.2.0E), continued past the face's edges up to
+        /// |a|, |b| = <paramref name="limit"/> (1: the face itself, as <see cref="DirectionToFaceCoordinates"/>).
+        /// The direction must be in that face's hemisphere.
+        /// </summary>
+        public static void FaceCoordinates(Vector3d direction, int face, double limit, out double a, out double b)
+        {
             GetFaceAxes(face, out Vector3 normal, out Vector3 axisA, out Vector3 axisB);
             double dn = Vector3d.Dot(direction, new Vector3d(normal));
             double u = Vector3d.Dot(direction, new Vector3d(axisA)) / dn;
             double v = Vector3d.Dot(direction, new Vector3d(axisB)) / dn;
-            double x = Math.Max(-1.0, Math.Min(1.0, u)), y = Math.Max(-1.0, Math.Min(1.0, v));
+            double x = Math.Max(-limit, Math.Min(limit, u)), y = Math.Max(-limit, Math.Min(limit, v));
             for (int iteration = 0; iteration < 12; iteration++)
             {
                 Gnomonic(x, y, out double pu, out double pv);
@@ -116,8 +127,8 @@ namespace Planetwalker.Generation
                     break;
                 }
                 double ru = u - pu, rv = v - pv;
-                x = Math.Max(-1.0, Math.Min(1.0, x + (j11 * ru - j01 * rv) / det));
-                y = Math.Max(-1.0, Math.Min(1.0, y + (j00 * rv - j10 * ru) / det));
+                x = Math.Max(-limit, Math.Min(limit, x + (j11 * ru - j01 * rv) / det));
+                y = Math.Max(-limit, Math.Min(limit, y + (j00 * rv - j10 * ru) / det));
                 if (Math.Abs(ru) + Math.Abs(rv) < 1e-15)
                 {
                     break;
@@ -125,7 +136,6 @@ namespace Planetwalker.Generation
             }
             a = x;
             b = y;
-            return face;
         }
 
         /// <summary>The cube-to-sphere mapping in the face frame (a, b, 1), projected gnomonically (double).</summary>

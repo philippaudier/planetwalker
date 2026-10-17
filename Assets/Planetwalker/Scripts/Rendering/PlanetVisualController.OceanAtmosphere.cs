@@ -18,6 +18,10 @@ namespace Planetwalker.Rendering
         static readonly int RoughnessId = Shader.PropertyToID("_Roughness");
         static readonly int SpecularIntensityId = Shader.PropertyToID("_SpecularIntensity");
         static readonly int LightWrapId = Shader.PropertyToID("_LightWrap");
+        static readonly int ShoreParamsId = Shader.PropertyToID("_ShoreParams");
+
+        /// <summary>Shallow water at the shore (V0.2.0F, presentation only: never archived). Applied on the next ApplyOceanAtmosphere.</summary>
+        public bool ShallowWater { get; set; } = true;
         static readonly int StrengthId = Shader.PropertyToID("_Strength");
         static readonly int PlanetRatioId = Shader.PropertyToID("_PlanetRatio");
         static readonly int AtmoShellId = Shader.PropertyToID("_AtmoShell");
@@ -162,6 +166,10 @@ namespace Planetwalker.Rendering
             SetHaze(oceanProperties);
             WriteCloudUniforms(oceanProperties, Planet != null ? Planet.OceanRadius : 1f, cloudThreshold);
             WriteSolarShading(oceanProperties);
+            // Shallow water at the shore (V0.2.0F): meters per world unit (planet scale and the root's scale), clarity depth.
+            float worldScale = Mathf.Max(Mathf.Abs(transform.lossyScale.x), 1e-9f);
+            oceanProperties.SetVector(ShoreParamsId, new Vector4(Planet != null ? (float)(Planet.Scale.MetersPerUnit / worldScale) : 1f, 3f,
+                defaultView && ShallowWater ? 1f : 0f, 0f));
             OceanRenderer.SetPropertyBlock(oceanProperties);
 
             // Terminator softness: the terrain's existing main-light wrap (no second lighting system).

@@ -104,4 +104,13 @@ half PlanetShadow(float3 positionWS, float3 center, float3 lightDirection, half 
     return smoothstep(horizon, horizon + 0.12, s);
 }
 
+
+// Skylight amount at a surface point (V0.2.0D): the sunlit sky dome's irradiance relative to the direct sun, from the
+// geocentric sun height only (zero on the night side, rising through the twilight, full by mid-morning).
+half SkylightAmount(float3 positionWS, float3 center, float3 lightDirection)
+{
+    float s = dot(normalize(positionWS - center), lightDirection);
+    return smoothstep(-0.1, 0.35, s);
+}
+
 #endif

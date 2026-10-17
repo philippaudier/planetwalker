@@ -1,4 +1,4 @@
-# Planetwalker — Genesis V0.2.0C (Planetary Scale & Deterministic Multi-Scale Terrain)
+# Planetwalker — Genesis V0.2.0F (Physically Based Planetary Surfaces)
 
 ## Launch
 
@@ -430,6 +430,166 @@ leave / re-enter Play, load: same settings and geography; 9 load a V0.1.3B / V0.
 (detail off); 10 floating origin: at 100 m altitude the origin offset line shows rebases and terrain, ocean, clouds,
 atmosphere stay aligned; *Rebase Now* changes nothing visible.
 
+## Surface Detail Foundation & Ground Exploration (V0.2.0D)
+
+**Explore Surface camera** (`CameraControl/PlanetExploreCamera`, on the orbit camera's GameObject, exactly one of the
+two enabled; *Explore Surface (F)* / *Orbital View (F)* in SURFACE EXPLORATION or the F key): free flight from orbit
+down to a few meters. State in double, in planet space: position and a unit forward vector kept tangent to the sphere
+and parallel-transported at every step (local up = radial direction): no Euler angle, no reference axis, nothing special
+at cube-face edges or the poles; pitch is a separate angle clamped at +-89 degrees. Controls: click the view to capture
+the mouse (Esc releases; right button held also looks), WASD along the local horizon (horizontal motion keeps the
+radial distance), Space / Ctrl up / down, Shift x5. Speed = one clearance per second (x *Exploration Speed*), 4 m/s ..
+3000 km/s, a pure function of dt (frame-rate independent). Entering above 150 km starts a controlled descent
+(exponential approach of 2 km of clearance, cancelled by any movement); *Descend* goes down a decade per press, the last step at eye height (1.7 m).
+Clearance is measured against the canonical elevation in double (`Height.GetElevation`, the function the adaptive
+patches sample, never a mesh) or the sea surface, whichever is higher; the camera never goes below *Min Clearance*
+(1.5 m by default, below eye height). Placement goes through the floating origin (rebase first, then place), near plane = a quarter of the
+clearance (>= 0.1 m), far plane past the planet; reversed-Z keeps the depth precision at these ratios. Leaving the mode
+hands the orbit camera the same direction and distance. A regeneration or a world load keeps the pose and only pushes
+the camera above the new terrain. Archives still record the orbit view (no format change).
+
+**Close-range appearance** (`PlanetTerrain.shader`, adaptive patches only, shown with surface detail; presentation only:
+heights, sampler and meshes untouched): soil patches (64 / 16 m), paler patches, brightness grain (8-2 m), bare rock
+where the ground is locally steep (the patch normal at that distance carries the 80 m band the coarse rock field cannot
+see; snow and ice stay clean) and a fine bump (8-1 m) on the shading normal. The noise is a function of the planet-space
+position in meters, from an origin snapped to a 1024 m lattice near the camera (`AdaptiveTerrainRenderer.WriteGroundDetail`,
+in double) and periodic over that lattice: small precise float coordinates, no swimming, no pops when the origin moves,
+independent of the floating origin and of the patch level. Every octave fades out with the pixel footprint (no aliasing,
+nothing from altitude). *Ground Detail Strength* on the renderer (0 = off).
+
+**Lighting from the ground**: the very dark areas seen up close were slopes facing away from the sun lit only by the
+faint space ambient (normals correct). A day-side *skylight* (terrain and ocean: the atmosphere color, hemispherical,
+fading through the twilight, zero at night) fills them; the night stays black. From inside the atmosphere the sky shell
+adds the sky dome a camera inside the layer sees (`SkyFromInside`: blue zenith, paler horizon, warm low-sun tint, sun
+glow; weighted by the depth in the layer, zero from orbit: the orbital look is unchanged). The cloud layer is drawn on
+both faces with an analytic planet occlusion and is depth tested near the ground (exaggerated relief can rise above it);
+from orbit it keeps ZTest Always. Close-range cloud detail (`PlanetCloudsCommon.hlsl` `CloudFine`, material *Close-Range Detail*): 8 octaves continuing the orbital detail from ~R/300 (50 km) down to ~200 m, billowy, moved by the same flow map, each faded out with the pixel footprint (pixel-identical from orbit); they break up thin edges, shape the opacity of the lobes and light them from the sun side (a lobe denser towards the sun is in its own shade). Seen from below up close, dense lobes are more opaque. Ground shadows keep the coarse field.
+
+**Diagnostics** (SURFACE EXPLORATION, 4 updates per second): mode, altitude above sea level, clearance (terrain or sea),
+speed, descent / mouse look state, adaptive level under the camera and its vertex spacing, surface detail on / off and
+band values.
+
+## Surface Identity & Geological Detail (V0.2.0E)
+
+**Surface geology** (`Terrain/SurfaceGeology`, presentation data only: elevation, coastlines, hydrology, archives
+untouched). Per surface point: *bedrock* exposure, *sediment* (loose material), *erosion* character, *stratification*,
+reference slope, concavity, downslope direction, province rock color. Inputs, all upstream and deterministic: the
+canonical elevation band-limited to the lattice spacing, the mountain envelope (core, influence) of the same evaluation
+(`PlanetHeightGenerator.GetElevation(direction, spacing, out context)`, no extra cost), the terrain character field of
+the surface detail, the climate (aridity from precipitation and temperature, Natural Planet only) and three seeded
+province fields (sedimentary vs crystalline, rock family, local variation). Rules: bedrock on steep and convex ground,
+in mountain cores and arid land, never in hollows or on the coast; sediment on flat and concave ground (local and
+~600 m broad concavity, so valley floors and slope feet fill as continuous bodies), never on bedrock; erosion with
+slope, aridity and rugged character; strata in sedimentary provinces, favored by aridity. Rock families: grey / pink
+granite and basalt (crystalline), red sandstone and ochre limestone (sedimentary), mixed by the province fields: a desert
+holds rock, gravel, sand and layered plateaus; no biome-to-material table.
+
+**LOD and precision.** Characteristics live on the nodes of a global cube-face lattice (2^16 cells per face, ~150 m at
+Earth scale, the fine lattice of the planetary terrain): a node is a least-squares quadratic fit of the elevation on its
+8 neighbours in its tangent plane (slope, downslope, Laplacian independent of the lattice's skew near cube corners),
+then the rules; patch vertices interpolate the nodes bilinearly. Within 3 cells of a face edge the sample is blended
+with the same point on the neighbouring face's lattice (half and half on the edge: worst jump across edges 0.05, the
+local gradient). Every patch level at or finer than the lattice reads
+the same nodes (geology at a location identical across levels: rock does not move with the LOD); coarser levels use
+their own vertex lattice (prefiltered). Regional inputs (climate, character, provinces) on a 512-cell lattice. Pure
+functions of (planet, face, i, j), per-thread caches, worker-thread safe. In the shader every pattern is a function of
+the planet-space position in meters from the V0.2.0D snapped origin (1024 m lattice, periodic noise): no swimming, no
+dependence on the floating origin; each octave fades with the pixel footprint.
+
+**Appearance** (`PlanetTerrainGeology.hlsl`, adaptive patches; per-vertex attributes in one interleaved stream,
+`TerrainVertex`, 80 bytes): outcrop boundaries broken by noise elongated down the slope; rock body variation, strata at
+their true altitude (the planet's height above sea level, gently warped; 18 m and 4.5 m beds, alternating warmer beds,
+bedding partings up close), erosion streaks along the downslope direction, weathering (darker hollows); jointed blocks
+(3D Voronoi fractures, 4 m blocks, discontinuous, below ~12 cm per pixel), mineral grain down to 1.5 cm; sediment as
+debris derived from the local rock (alluvium on vegetated land) with stones at 0.5 m / 12 cm; arid soil takes some of
+the rock's color; snow stays on top except on steep rock; material-dependent bump (rough rock, stones, soft soil).
+No new geometry: the authoritative elevation, the meshes and the camera clearance are unchanged (the existing 80 m band
+was judged sufficient for the pilot). *SURFACE GEOLOGY* section: *Geological Appearance* (off = the V0.2.0D look),
+*Geological Detail*, *Geology View* (Off / Identity / Bedrock / Sediment / Erosion / Reference Slope).
+
+**Fixes.** *LOD shading seam*: patches carry the next coarser level's normal near their edges; along an edge stitched
+to a coarser neighbour the normal blends to it (band of 1/8 patch), so shared vertices are lit identically. *Rock moving
+with the LOD*: rock comes from the LOD-independent geology instead of the displayed normal. *Blue / dark shadows*: the
+skylight is half desaturated (sky dome, not the limb color) and a ground bounce (local ground color, follows the sun's
+height, zero at night) lights slopes facing away from the sky; the night is unchanged. *Horizon band*: identified as the
+cloud deck seen from a summit above it (exaggerated relief rises above the 38 km layer), a grazing view of an infinitely
+thin shell whose ray ends on the ocean and so received almost no haze; inside the atmosphere the grazing deck now fades
+to the horizon sky and loses opacity (orbit pixel-identical). Remaining: the deck's own geometric horizon stays a sharp
+line (a thin shell has no thickness to fade through; needs volumetric clouds).
+
+## Physically Based Planetary Surfaces (V0.2.0F)
+
+**Materials.** Six CC0 scans from Poly Haven (granite, layered sandstone, pale limestone-like rock, dark basalt-like
+rock, gravelly desert sand, rocky debris), 2K, base color / OpenGL normal / roughness / AO / height, in
+`Materials/PlanetSurface` (provenance: `Docs/ThirdPartyAssets/SurfaceMaterials.md`). Import
+(`Editor/PlanetSurfaceTextureImporter`): base color sRGB BC1; normal map BC7, no green flip; the roughness file is
+imported as the packed mask (R smoothness = 1 - roughness, G AO, B height, read from its sibling files). The library
+asset (`Resources/PlanetSurface/PlanetSurfaceLibrary`, Planetwalker > Build Surface Material Library) references them;
+the three Texture2DArrays are assembled on the GPU at first use (no stored duplicate) and set on the adaptive
+terrain's single property block (no material per patch or per material, no extra draw call).
+
+**Distribution** (`PlanetTerrainMaterials.hlsl`; CPU mirror `SurfaceMaterials`): the V0.2.0E geology stays the
+authority. Rock share = the bedrock mask with its breakup; rock split by province (sedimentary weight, family field:
+granite / basalt / sandstone / limestone); loose ground split by slope and erosion (gravel / dry sand). Per pixel only
+the two largest weights are sampled (each reduced by the third: continuous rank changes), blended by their height maps.
+New per-vertex inputs: sedimentary weight and family (free channels of the V0.2.0E vertex, same 80 bytes).
+
+**Projection.** Triplanar on the planet's axes in planet-space meters from the snapped origin (power-12 blend, grazing
+projections dropped, whiteout normals with axis signs): floating-origin and snap invariant, no cube-face seam. The scale
+follows the pixel footprint in steps of 8 (2 m, 16 m, 128 m: all divide the 1024 m anchoring period), two steps blended,
+so a tile always spans ~300+ pixels (no visible repetition); the detail fades out above 4 m per pixel (orbit: the
+procedural cost). Color: the scans' detail with their mean moved towards the geology's macro colors (province tint with
+strata, streaks, weathering; biome ground color), more so on layered rock (the scans' own bedding follows the projection
+axes; the geology's strata are horizontal). Lighting: GGX specular (F0 0.04, metallic 0) + Lambert with the existing
+wrap, planet and cloud shadows, skylight, ground bounce, AO on the ambient; night unchanged. The V0.2.0E Voronoi
+fractures, mineral grain and stone bump are not used in PBR mode (the scans carry real ones).
+
+**Coast** (addendum). Geology: the V0.2.0E coastal term (sediment over ~1.9 km of elevation: a uniform ring) is replaced
+by a metric beach band, 3-35 m above the sea along the shore (a seeded ~50 km field), wider on sedimentary coasts, only on
+gentle slopes; on steep shores bedrock reaches the water. Shader: a wet band above the waterline (0.4-2.5 m, varying,
+narrower on steep shores) and everything below sea level: darker (porous sand more than rock), smoother. Ocean:
+water thickness along the view ray from the camera depth texture (URP PC asset), in meters: clear and turquoise over the
+first meters, deep water unchanged, the waterline where the terrain meets the sea (cliffs stay sharp). No foam.
+
+**V0.2.0F.1 — stable at every scale.** Cause of the popping (measured, fixed camera, LOD refined 384 -> 1024 patches):
+the projection scale was chosen from screen derivatives of the position, constant per triangle, so it changed with the
+mesh LOD (and the camera's rotation); a refinement changed the image by 20.3 (mean abs difference, valley at 10 m)
+vs 7.5 in the procedural mode. The scale now follows a *stable footprint* (distance x pixel angle at a reference of
+1080 lines: independent of triangles, rotation and resolution): 9.9 for the same change (the rest is geometry and
+normals). Scale steps 2 / 16 / 128 / 1024 m: a pure scale over 60 % of each step, a smoothstep crossfade over the last
+40 % (every property blended, normals renormalized; two scales sampled only inside the bands); normal strength fades
+continuously with the scale (1 .. 0.29) and normals are not sampled when negligible; textures continue to 15-30 km
+(distant mountains keep their rock texture). Coasts and broad sandy surfaces: landscape-scale brightness / warmth
+patches on loose ground and a damp zone above the wet band (4-10 m, varying). Cube-face continuity verified by
+convergence (difference across an edge at 20 / 2 / 0.2 m: 0.052 / 0.0052 / 0.0005 for the geology, 0.18 / 0.018 /
+0.0018 for the weights: continuous, a steep gradient). Colored fringes: the Genesis scene's Global Volume profile
+(SampleSceneProfile) enables Chromatic Aberration (0.2), the URP effect producing red / cyan edges; not a terrain
+defect (manual check: disable that override). Flat-color audit: below sea level the vertex color is the elevation palette's beach / shallow-water tone (a band seen through the clear water): replaced there by the geology's debris tone; ground color transfer reduced to 0.3-0.6 (was 0.55-0.95, close to a flat fill); snow keeps the texture's grain; wet and damp edges irregular (planet-anchored noise); the slope-oriented patterns and the second material fade in instead of switching at a threshold (straight lines across triangles on slopes). *View: Scale* shows the projection scale, *View: Tint* the final albedo over the scans' own color (neutral grey = nothing painted over the texture).
+
+**V0.2.0F.2 — biome ground materials.** Five more CC0 scans (green grass, dry grass, forest floor, soil, snow; 11 layers):
+the six V0.2.0F materials covered rock, sand and gravel only, so every vegetated biome was a tinted sand. Per vertex, the
+Natural Planet biome blend now also gives its ground cover (green grass, dry grass, forest floor, snow: per-biome tables in
+`NaturalSurface`, TEXCOORD4, vertex 84 bytes). Weights: snow (also over gentle rock), vegetation thinned on steep and eroded
+slopes and on beaches (3-20 m above the sea), bare ground as gravel on slopes, soil around vegetation, sand in deserts and on
+beaches; snow keeps its own color. Altitude stability: the normal strength is nearly constant along the scales (V0.2.0F.1
+faded it to 0.29: brighter as the camera climbed) and the scale crossfade preserves contrast (deviation from the mean scaled
+by 1 / sqrt(f^2 + (1 - f)^2), color and normal tilt). Texture arrays: 11 x 2048^2 (GPU about 120 MB; editor profiler
+reports 235 MB).
+
+**V0.2.0F.3 — ground-level stability.** The "wall" seen at 1.7 m on mountains was the near clip plane: it was a quarter
+of the *vertical* clearance, but above a steep slope the surface in front is much closer (1.7 m above a 76-degree slope is
+0.41 m from it), so the near plane lay beyond the slope and cut it open. The explore camera now measures the *distance to
+the surface* (authoritative height under the camera and on three rings: 25 samples) and keeps the minimum clearance for
+that distance (raised along the local up, frame-rate independent); the near plane is a quarter of it (at least 5 cm). No
+fog, no clipping trick, no new skirts. Default patch budget 1024 (was 512; mesh slots 2112). Budget differences measured
+at a fixed camera (identical camera, identical authoritative heights): they come from the finer levels the larger budget
+shows near the camera (valley at 10 m: 100 L16 patches at 1024 vs 8 at 384) — geometry and the level-band-limited vertex
+normals, then the materials that follow them; no holes at any budget; mesh vs authoritative height in view at 1024: mean
+0.2-0.35 m, max 1.3-2.3 m. Evidence: `Docs/Captures/V0.2.0F.3_Validation/`, report `Docs/Reports/V0.2.0F.3_Validation.md`.
+
+**Controls** (SURFACE MATERIALS): *Materials: PBR / Procedural (V0.2.0E)*, *PBR Detail*, *View* (Final Lit, Material
+ID, Albedo, Normal, Roughness, Triplanar), status line. Presentation only: never archived.
+
 ## Architecture
 
 | Layer | Files | Role |
@@ -500,6 +660,28 @@ Elevation convention: dimensionless, fraction of the reference radius
 rendering scale.
 
 ## Changelog
+
+### V0.2.0F — Physically Based Planetary Surfaces
+- Six CC0 PBR scans (Poly Haven) distributed by the surface geology: texture arrays, footprint-scaled triplanar
+  projection, height-blended top-two materials, GGX lighting; Procedural (V0.2.0E) mode kept for comparison.
+- Coastal pass: metric beach band on gentle shores, rocky steep shores, wet shoreline, shallow water from the depth texture.
+- SURFACE MATERIALS section with material debug views. Unchanged: geography, heights, seeds, archives.
+
+### V0.2.0E — Surface Identity & Geological Detail
+- Surface geology (bedrock, sediment, erosion, strata, rock families) on a global LOD-independent lattice; geological
+  terrain appearance from 10 km to 1.7 m; SURFACE GEOLOGY section with debug views.
+- LOD shading seam removed (coarse-normal blend on stitched edges); skylight desaturated, ground bounce; cloud deck
+  horizon from summits attenuated; close-range cloud detail.
+- Unchanged: elevation, coastlines, hydrology, seeds, archives (format and content), orbital look.
+
+### V0.2.0D — Surface Detail Foundation & Ground Exploration
+- Explore Surface camera (double state, parallel-transported heading, clearance from the canonical elevation, controlled
+  descent, floating-origin placement, clearance-driven clip planes); Orbital View / Explore Surface switch (F).
+- Close-range ground layer in the terrain shader (soil, rock on local slopes, grain, fine bump; planet-anchored).
+- Day-side skylight, sky dome from inside the atmosphere, cloud layer seen from below and depth tested near the ground.
+- Adaptive LOD centered under a low camera, no flicker under budget pressure (distance floor, stable small angles,
+  unaffordable splits skipped).
+- SURFACE EXPLORATION section. Unchanged: seeds, archives (format and content), coastlines, hydrology, orbit controls.
 
 ### V0.2.0C — Planetary Scale & Deterministic Multi-Scale Terrain
 - Physical scale contract (`PlanetScale`, `radiusKilometers`), double-precision planet coordinates and tangent frames,
@@ -911,6 +1093,18 @@ orbit camera, ocean / atmosphere alignment after a rebase), `TerrainDetailTests`
 and precision paths, seed independence, continuity across faces and corners, bounds, detail-off bit identity, band
 controls, coastline preservation, no climate / biome dependency, band limiting, double-path smoothness, error model,
 cost report), `WorldArchiveFormatTests` T / U (old archives exact with detail off, new fields round trip).
+Ground exploration (V0.2.0D): `ExploreCameraTests` (K clearance vs the canonical terrain and the sea, J floating origin,
+L flight across poles and cube edges, M frame-rate independence, N regeneration, P mode switching leaves the world
+untouched, Q ground layer anchoring and off without detail); `TerrainLodReliefBoundsTests` (LOD centered under a low
+camera, no flicker on a slow drag, reselection after a short move).
+Surface geology (V0.2.0E): `SurfaceGeologyTests` (A determinism across instances and threads, B seed variation, C
+cube-edge continuity, D LOD independence, E floating-origin invariance, F ranges, G smooth transitions, H geometry and
+vertex colors unchanged, I vertices on the authoritative surface, J presentation only / no regeneration, K coarse
+normals on patch edges, L shader properties, vertex layout and runtime switches; pilot determinism).
+Surface materials (V0.2.0F): `SurfaceMaterialTests` (selection determinism, ranges, cube-edge continuity, LOD
+independence, anchoring, import settings, OpenGL normals, smoothness = 1 - roughness, texture arrays, shader / runtime
+wiring, procedural fallback, presentation only, no geometry change, no material per patch, steep / flat selection; coast:
+beaches on gentle shores and rock on steep ones, no uniform ring, smooth inland transition, shallow water vs floating origin).
 World archive: `WorldArchiveFormatTests` (format, schema, validation, identity, safe storage; engine independent) and
 `WorldArchiveSessionTests` (live planet: unsaved changes, regeneration counts, deterministic reconstruction of the
 reference seeds, presentation, leaks, save / list / load timings). Both use a temporary folder, never the user's archives.

@@ -58,6 +58,45 @@ namespace Planetwalker.Bootstrap
 
         public PlanetOrbitCamera OrbitCamera => orbitCamera;
 
+        /// <summary>Surface exploration camera (V0.2.0D), on the orbit camera's GameObject; disabled in orbital view.</summary>
+        public PlanetExploreCamera ExploreCamera { get; private set; }
+
+        /// <summary>True in Explore Surface mode, false in Orbital View.</summary>
+        public bool Exploring => ExploreCamera != null && ExploreCamera.enabled;
+
+        /// <summary>
+        /// Switches between Orbital View and Explore Surface (V0.2.0D). Entering keeps the camera's position and view
+        /// (a controlled descent starts when far above the planet); leaving puts the orbit camera at the explorer's
+        /// position, looking at the planet. Presentation only: the world is never regenerated or modified.
+        /// </summary>
+        public void SetExploring(bool explore)
+        {
+            if (ExploreCamera == null || orbitCamera == null || explore == Exploring)
+            {
+                return;
+            }
+            Transform cameraTransform = orbitCamera.transform;
+            if (explore)
+            {
+                ExploreCamera.Planet = Current;
+                ExploreCamera.BeginFrom(cameraTransform.position, cameraTransform.forward, cameraTransform.up);
+                orbitCamera.enabled = false;
+                ExploreCamera.enabled = true;
+            }
+            else
+            {
+                ExploreCamera.enabled = false;
+                PlanetRenderFrame frame = PlanetRenderFrame.GetOrCreate(visual.transform);
+                // Orbit view from the explorer's position: same direction from the planet center, same distance.
+                Vector3d offset = frame.PlanetVectorToRender(ExploreCamera.Position);
+                double distance = offset.Magnitude;
+                float pitch = (float)(Math.Asin(Math.Max(-1.0, Math.Min(1.0, offset.y / Math.Max(distance, 1e-12)))) * (180.0 / Math.PI));
+                float yaw = (float)(Math.Atan2(-offset.x, -offset.z) * (180.0 / Math.PI));
+                orbitCamera.enabled = true;
+                orbitCamera.SetView(yaw, pitch, (float)distance);
+            }
+        }
+
         public float LastGenerationMilliseconds { get; private set; }
 
         public int GenerationCount { get; private set; }
@@ -112,6 +151,12 @@ namespace Planetwalker.Bootstrap
 
         void Update()
         {
+            // F: Orbital View <-> Explore Surface (not while typing in a text field).
+            if (Application.isPlaying && UnityEngine.InputSystem.Keyboard.current != null
+                && UnityEngine.InputSystem.Keyboard.current.fKey.wasPressedThisFrame && !TypingInUI())
+            {
+                SetExploring(!Exploring);
+            }
             // Pending thumbnail capture only (free otherwise).
             if (Application.isPlaying && worlds != null)
             {
@@ -184,6 +229,8 @@ namespace Planetwalker.Bootstrap
                 // Frame the planet at startup; afterwards keep the user's view.
                 orbitCamera.FramePlanet(visual.BoundingRadius, first);
             }
+            // The explorer keeps its place on a regenerated or loaded world (only pushed above new terrain).
+            ExploreCamera?.OnPlanetChanged(Current);
             if (first)
             {
                 // The startup planet is a new, unsaved world: its configuration is the unsaved-changes baseline.
@@ -191,6 +238,17 @@ namespace Planetwalker.Bootstrap
                 _ = ThumbnailUpdater; // listens to saves from the start
             }
             PlanetGenerated?.Invoke(Current);
+        }
+
+        static bool TypingInUI()
+        {
+            UnityEngine.EventSystems.EventSystem eventSystem = UnityEngine.EventSystems.EventSystem.current;
+            if (eventSystem == null || eventSystem.currentSelectedGameObject == null)
+            {
+                return false;
+            }
+            var field = eventSystem.currentSelectedGameObject.GetComponent<UnityEngine.UI.InputField>();
+            return field != null && field.isFocused;
         }
 
         /// <summary>Terrain radius (render units) under a planet-space direction: the canonical surface.</summary>
@@ -262,6 +320,18 @@ namespace Planetwalker.Bootstrap
                 orbitCamera = sceneCamera.gameObject.AddComponent<PlanetOrbitCamera>();
             }
             orbitCamera.Target = visual.transform;
+            // Surface exploration camera (V0.2.0D): same GameObject, disabled until Explore Surface.
+            ExploreCamera = orbitCamera.GetComponent<PlanetExploreCamera>();
+            if (ExploreCamera == null)
+            {
+                ExploreCamera = orbitCamera.gameObject.AddComponent<PlanetExploreCamera>();
+                ExploreCamera.enabled = false;
+            }
+            ExploreCamera.Target = visual.transform;
+            if (ExploreCamera.enabled && orbitCamera.enabled)
+            {
+                ExploreCamera.enabled = false; // exactly one camera controller
+            }
 
             if (panel == null)
             {
