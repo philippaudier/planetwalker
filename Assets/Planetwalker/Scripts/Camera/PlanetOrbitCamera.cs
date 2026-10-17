@@ -25,6 +25,12 @@ namespace Planetwalker.CameraControl
     /// every <c>LateUpdate</c> draw (atmosphere, clouds, lakes, rivers, adaptive patches, diagnostics): within a
     /// frame, everything sees one camera position and one planet root position.
     /// </para>
+    /// <para>
+    /// The orbit state (yaw, pitch, distance and their targets) is kept in double, and the yaw is wrapped into
+    /// [-180, 180) (the world archive's convention): in float, near 100 render units and 170 degrees, the smallest
+    /// possible step was about 1.7 m of camera motion at Earth scale (13 m after a few unwrapped turns), so a slow
+    /// orbit close to the ground advanced by visible jumps (several pixels at 200 m altitude).
+    /// </para>
     /// </remarks>
     [RequireComponent(typeof(Camera))]
     [DefaultExecutionOrder(-90)]
@@ -71,20 +77,21 @@ namespace Planetwalker.CameraControl
         float maxDistance = 8f;
         float framedDistance = 3f;
 
-        float yaw;
-        float pitch;
-        float distance;
-        float targetYaw;
-        float targetPitch;
-        float targetDistance;
+        // Double precision (see the remarks): yaw wrapped into [-180, 180).
+        double yaw;
+        double pitch;
+        double distance;
+        double targetYaw;
+        double targetPitch;
+        double targetDistance;
         bool dragging;
 
         public float MinDistance => minDistance;
         public float MaxDistance => maxDistance;
-        public float CurrentDistance => distance;
+        public float CurrentDistance => (float)distance;
 
         /// <summary>Altitude above the planet bounding sphere the camera is heading to (render units).</summary>
-        public float TargetAltitude => Mathf.Max(targetDistance - groundRadius, 0f);
+        public float TargetAltitude => (float)Math.Max(targetDistance - groundRadius, 0.0);
 
         /// <summary>
         /// Terrain radius (render units) under a planet-space direction, set by the host (V0.2.0C: the canonical
@@ -93,10 +100,39 @@ namespace Planetwalker.CameraControl
         public Func<Vector3, float> SurfaceRadius { get; set; }
 
         /// <summary>Current altitude above the terrain under the camera (render units).</summary>
-        public float Altitude => Mathf.Max(distance - groundRadius, 0f);
+        public float Altitude => (float)Math.Max(distance - groundRadius, 0.0);
+
+        /// <summary>Orbit state in double (precision diagnostics, tests): yaw, pitch (degrees), distance (render units).</summary>
+        public double PreciseYaw => yaw;
+        public double PrecisePitch => pitch;
+        public double PreciseDistance => distance;
+
+        /// <summary>Exact orbit direction of the current state (planet-centered, before the root rotation), in double.</summary>
+        public Vector3d PreciseOffset
+        {
+            get
+            {
+                double p = pitch * (Math.PI / 180.0), y = yaw * (Math.PI / 180.0);
+                return new Vector3d(-Math.Cos(p) * Math.Sin(y), Math.Sin(p), -Math.Cos(p) * Math.Cos(y)) * distance;
+            }
+        }
+
+        /// <summary>
+        /// Wraps the target yaw into [-180, 180) and shifts the smoothed yaw by the same whole turns, so the smoothing
+        /// continues without a jump (the view is unchanged).
+        /// </summary>
+        void WrapYaw()
+        {
+            double turns = Math.Floor((targetYaw + 180.0) / 360.0);
+            if (turns != 0.0)
+            {
+                targetYaw -= 360.0 * turns;
+                yaw -= 360.0 * turns;
+            }
+        }
 
         /// <summary>Planet-space unit direction of the camera for the given angles (the orbit's own convention).</summary>
-        static Vector3 OrbitDirection(float pitchDegrees, float yawDegrees)
+        static Vector3 OrbitDirection(double pitchDegrees, double yawDegrees)
         {
             double p = pitchDegrees * (Math.PI / 180.0), y = yawDegrees * (Math.PI / 180.0);
             return new Vector3((float)(-Math.Cos(p) * Math.Sin(y)), (float)Math.Sin(p), (float)(-Math.Cos(p) * Math.Cos(y)));
@@ -167,17 +203,17 @@ namespace Planetwalker.CameraControl
             }
             else
             {
-                targetDistance = Mathf.Clamp(targetDistance, minDistance, maxDistance);
-                distance = Mathf.Clamp(distance, minDistance, maxDistance);
+                targetDistance = Math.Clamp(targetDistance, minDistance, maxDistance);
+                distance = Math.Clamp(distance, minDistance, maxDistance);
             }
             ApplyTransform();
         }
 
         /// <summary>Orientation the camera is heading to (degrees; yaw unwrapped).</summary>
-        public float TargetYaw => targetYaw;
-        public float TargetPitch => targetPitch;
+        public float TargetYaw => (float)targetYaw;
+        public float TargetPitch => (float)targetPitch;
         /// <summary>Distance the camera is heading to (rendering units).</summary>
-        public float TargetDistance => targetDistance;
+        public float TargetDistance => (float)targetDistance;
         public float MaxPitch => maxPitch;
 
         /// <summary>
@@ -187,8 +223,9 @@ namespace Planetwalker.CameraControl
         public void SetView(float yawDegrees, float pitchDegrees, float distanceUnits)
         {
             targetYaw = yaw = yawDegrees;
+            WrapYaw();
             targetPitch = pitch = Mathf.Clamp(pitchDegrees, -maxPitch, maxPitch);
-            targetDistance = distance = Mathf.Clamp(distanceUnits, minDistance, maxDistance);
+            targetDistance = distance = Math.Clamp((double)distanceUnits, minDistance, maxDistance);
             ApplyTransform();
         }
 
@@ -196,8 +233,10 @@ namespace Planetwalker.CameraControl
         public void ResetView()
         {
             // Unwind full turns so the camera takes the short way back.
-            yaw = Mathf.Repeat(yaw - defaultYaw + 180f, 360f) - 180f + defaultYaw;
+            double unwound = yaw - defaultYaw + 180.0;
+            yaw = unwound - 360.0 * Math.Floor(unwound / 360.0) - 180.0 + defaultYaw;
             targetYaw = defaultYaw;
+            WrapYaw(); // same whole turns applied to both
             targetPitch = defaultPitch;
             targetDistance = framedDistance;
         }
@@ -207,13 +246,25 @@ namespace Planetwalker.CameraControl
             // Update, not LateUpdate: the rebase and the camera placement must precede this frame's LOD tick and
             // every LateUpdate draw (see the class remarks).
             HandleInput();
+            Advance(Time.unscaledDeltaTime);
+        }
 
-            float dt = Time.unscaledDeltaTime;
-            float rotationBlend = 1f - Mathf.Exp(-rotationSmoothing * dt);
-            float zoomBlend = 1f - Mathf.Exp(-zoomSmoothing * dt);
-            yaw = Mathf.Lerp(yaw, targetYaw, rotationBlend);
-            pitch = Mathf.Lerp(pitch, targetPitch, rotationBlend);
-            distance = Mathf.Lerp(distance, targetDistance, zoomBlend);
+        /// <summary>Rotates the orbit target by angles (degrees): the mouse drag goes through here.</summary>
+        public void Orbit(double yawDegrees, double pitchDegrees)
+        {
+            targetYaw += yawDegrees;
+            WrapYaw();
+            targetPitch = Math.Clamp(targetPitch + pitchDegrees, -maxPitch, maxPitch);
+        }
+
+        /// <summary>Smooths towards the targets over <paramref name="dt"/> seconds and places the camera (one frame).</summary>
+        public void Advance(double dt)
+        {
+            double rotationBlend = 1.0 - Math.Exp(-rotationSmoothing * dt);
+            double zoomBlend = 1.0 - Math.Exp(-zoomSmoothing * dt);
+            yaw += (targetYaw - yaw) * rotationBlend;
+            pitch += (targetPitch - pitch) * rotationBlend;
+            distance += (targetDistance - distance) * zoomBlend;
             ApplyTransform();
         }
 
@@ -236,10 +287,9 @@ namespace Planetwalker.CameraControl
                 {
                     Vector2 delta = mouse.delta.ReadValue();
                     // Slow down near the surface so close-up inspection stays controllable.
-                    float altitudeScale = Mathf.Clamp((distance - groundRadius) / Mathf.Max(framedDistance - planetRadius, 0.001f), 0.005f, 1.5f);
-                    float degreesPerPixel = rotationSensitivity / Mathf.Max(Screen.height, 1) * altitudeScale;
-                    targetYaw += delta.x * degreesPerPixel;
-                    targetPitch = Mathf.Clamp(targetPitch - delta.y * degreesPerPixel, -maxPitch, maxPitch);
+                    double altitudeScale = Math.Clamp((distance - groundRadius) / Mathf.Max(framedDistance - planetRadius, 0.001f), 0.005, 1.5);
+                    double degreesPerPixel = rotationSensitivity / Mathf.Max(Screen.height, 1) * altitudeScale;
+                    Orbit(delta.x * degreesPerPixel, -delta.y * degreesPerPixel);
                 }
 
                 float scroll = mouse.scroll.ReadValue().y;
@@ -249,9 +299,9 @@ namespace Planetwalker.CameraControl
                     float notches = Mathf.Abs(scroll) >= 10f ? scroll / 120f : scroll;
                     notches = Mathf.Clamp(notches, -5f, 5f);
                     UpdateGroundRadius();
-                    float altitude = Mathf.Max(targetDistance - groundRadius, minAltitude);
-                    altitude *= Mathf.Pow(1f - zoomSensitivity, notches);
-                    targetDistance = Mathf.Clamp(groundRadius + altitude, minDistance, maxDistance);
+                    double altitude = Math.Max(targetDistance - groundRadius, minAltitude);
+                    altitude *= Math.Pow(1.0 - zoomSensitivity, notches);
+                    targetDistance = Math.Clamp(groundRadius + altitude, minDistance, maxDistance);
                 }
             }
 
@@ -269,9 +319,9 @@ namespace Planetwalker.CameraControl
             if (distance < minDistance)
             {
                 distance = minDistance;
-                targetDistance = Mathf.Max(targetDistance, minDistance);
+                targetDistance = Math.Max(targetDistance, minDistance);
             }
-            Quaternion rotation = Quaternion.Euler(pitch, yaw, 0f);
+            Quaternion rotation = Quaternion.Euler((float)pitch, (float)yaw, 0f);
             PlanetRenderFrame renderFrame = ResolveFrame();
             if (renderFrame != null)
             {
@@ -280,13 +330,13 @@ namespace Planetwalker.CameraControl
                 var offset = new Vector3d(-Math.Cos(p) * Math.Sin(y), Math.Sin(p), -Math.Cos(p) * Math.Cos(y)) * distance;
                 // Planet space (the root's local space): general in the root's rotation and scale.
                 Vector3d cameraPlanet = renderFrame.RenderVectorToPlanet(offset);
-                renderFrame.MaybeRebase(cameraPlanet, Mathf.Max(distance - groundRadius, 0f));
+                renderFrame.MaybeRebase(cameraPlanet, Math.Max(distance - groundRadius, 0.0));
                 transform.SetPositionAndRotation(renderFrame.PlanetToRender(cameraPlanet), rotation);
             }
             else
             {
                 Vector3 center = target != null ? target.position : Vector3.zero;
-                transform.SetPositionAndRotation(center + rotation * new Vector3(0f, 0f, -distance), rotation);
+                transform.SetPositionAndRotation(center + rotation * new Vector3(0f, 0f, (float)-distance), rotation);
             }
             ApplyClipPlanes();
         }
@@ -305,9 +355,9 @@ namespace Planetwalker.CameraControl
             {
                 cachedCamera = GetComponent<Camera>();
             }
-            float altitude = Mathf.Max(distance - groundRadius, 0f);
+            float altitude = (float)Math.Max(distance - groundRadius, 0.0);
             cachedCamera.nearClipPlane = Mathf.Clamp(altitude * NearPlaneAltitudeFraction, MinNearPlane, MaxNearPlane);
-            cachedCamera.farClipPlane = Mathf.Clamp(distance + 2f * planetRadius, MinFarPlane, MaxFarPlane);
+            cachedCamera.farClipPlane = Mathf.Clamp((float)distance + 2f * planetRadius, MinFarPlane, MaxFarPlane);
         }
 
         PlanetRenderFrame ResolveFrame()
