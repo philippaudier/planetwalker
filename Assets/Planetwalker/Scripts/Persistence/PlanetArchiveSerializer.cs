@@ -31,7 +31,7 @@ namespace Planetwalker.Persistence
         /// <see cref="ApplyCompatibilityDefaults"/> turns off for archives that predate them, so their terrain stays
         /// bit-identical.
         /// </summary>
-        static readonly string[] ExactGeneratorVersions = { PlanetArchive.CurrentGeneratorVersion, "Genesis V0.2.0C", "Genesis V0.1.3A", "Genesis V0.1.3B" };
+        static readonly string[] ExactGeneratorVersions = { PlanetArchive.CurrentGeneratorVersion, "Genesis V0.2.0G.1", "Genesis V0.2.0C", "Genesis V0.1.3A", "Genesis V0.1.3B" };
 
         /// <summary>The terrain member whose absence marks an archive written before V0.2.0C.</summary>
         const string SurfaceDetailField = "terrain.surfaceDetail";
@@ -42,6 +42,9 @@ namespace Planetwalker.Persistence
         /// <summary>The terrain member whose absence marks an archive written before V0.2.0G.2A.</summary>
         const string ErosionField = "terrain.erosionStrength";
 
+        /// <summary>The terrain member whose absence marks an archive written before V0.2.0G.2B (the fluvial model).</summary>
+        const string ErosionModelField = "terrain.erosionModel";
+
         /// <summary>
         /// Fields every archive before V0.2.0C lacks and whose defaults are a documented compatibility rule (the
         /// terrain is bit-identical with them): not worth a "defaults used" warning when a world is loaded.
@@ -49,7 +52,7 @@ namespace Planetwalker.Persistence
         public static readonly string[] CompatibilityDefaultFields =
         {
             "terrain.radiusKilometers", SurfaceDetailField, "terrain.regionalDetail", "terrain.localDetail", "terrain.microDetail",
-            RegionalLandformsField, ErosionField,
+            RegionalLandformsField, ErosionField, ErosionModelField,
         };
 
         public static bool IsCompatibilityDefault(string field) => System.Array.IndexOf(CompatibilityDefaultFields, field) >= 0;
@@ -360,7 +363,13 @@ namespace Planetwalker.Persistence
                 }
                 else if (field == ErosionField)
                 {
-                    configuration.Terrain.erosionStrength = 0f; // V0.2.0G.2A: zero displacement either way; a future erosion never reshapes an older world
+                    configuration.Terrain.erosionStrength = 0f; // before V0.2.0G.2A: no erosion stage
+                }
+                else if (field == ErosionModelField)
+                {
+                    // Before V0.2.0G.2B (a V0.2.0G.2A world carries erosionStrength but no model): the zero-displacement
+                    // model, so the fluvial incision never silently reshapes a world saved before it existed.
+                    configuration.Terrain.erosionModel = 0;
                 }
             }
         }

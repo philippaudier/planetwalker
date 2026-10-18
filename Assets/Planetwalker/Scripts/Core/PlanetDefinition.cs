@@ -169,6 +169,14 @@ namespace Planetwalker.Core
         [Range(0f, MaxSurfaceDetailLevel)]
         public float erosionStrength = 1f;
 
+        [Tooltip("Erosion model (V0.2.0G.2B): 0 = none (the V0.2.0G.2A stage, zero displacement), 1 = drainage-guided "
+            + "fluvial incision. Archived: a world keeps the model it was generated with; archives before V0.2.0G.2B load "
+            + "with 0.")]
+        [Range(0, MaxErosionModel)]
+        public int erosionModel = 1;
+
+        public const int MaxErosionModel = 1;
+
         public PlanetDefinition Clone()
         {
             return (PlanetDefinition)MemberwiseClone();
@@ -202,7 +210,8 @@ namespace Planetwalker.Core
                 && localDetail == other.localDetail
                 && microDetail == other.microDetail
                 && regionalLandforms == other.regionalLandforms
-                && erosionStrength == other.erosionStrength;
+                && erosionStrength == other.erosionStrength
+                && erosionModel == other.erosionModel;
         }
 
         /// <summary>True when the surface detail settings (V0.2.0C) are identical.</summary>
@@ -210,7 +219,8 @@ namespace Planetwalker.Core
         {
             return other != null && surfaceDetail == other.surfaceDetail && regionalDetail == other.regionalDetail
                 && localDetail == other.localDetail && microDetail == other.microDetail && radiusKilometers == other.radiusKilometers
-                && regionalLandforms == other.regionalLandforms && erosionStrength == other.erosionStrength;
+                && regionalLandforms == other.regionalLandforms && erosionStrength == other.erosionStrength
+                && erosionModel == other.erosionModel;
         }
 
         /// <summary>Clamps every parameter into its documented range.</summary>
@@ -237,6 +247,7 @@ namespace Planetwalker.Core
             microDetail = Mathf.Clamp(microDetail, 0f, MaxSurfaceDetailLevel);
             regionalLandforms = Mathf.Clamp(regionalLandforms, 0f, MaxSurfaceDetailLevel);
             erosionStrength = Mathf.Clamp(erosionStrength, 0f, MaxSurfaceDetailLevel);
+            erosionModel = Mathf.Clamp(erosionModel, 0, MaxErosionModel);
         }
     }
 }

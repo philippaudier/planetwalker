@@ -1,0 +1,25 @@
+# Recreates G.2B before the G.2B.1 corrections (configuration A) in the scratch copy only.
+import sys
+root = sys.argv[1]
+
+def edit(p, pairs):
+    c = open(root + p, encoding='utf-8').read()
+    for a, b in pairs:
+        assert c.count(a) == 1, (p, a[:60], c.count(a))
+        c = c.replace(a, b)
+    open(root + p, 'w', encoding='utf-8').write(c)
+
+edit(r'\Scripts\Generation\TerrainDetail.cs', [
+    ("Vector3d q = precise + new Vector3d(context.Anisotropy) * core;", "Vector3d q = precise + new Vector3d(context.Anisotropy) * m;"),
+])
+edit(r'\Scripts\Generation\ValleyNetwork.cs', [
+    ("incision[b] = Mathf.Min(MaxIncisionMeters * k * activation * Mathf.Pow(a, IncisionAreaExponent) * s, MaxDepthPerHalfWidth * incisionWidth[b]);",
+     "incision[b] = MaxIncisionMeters * k * Mathf.Pow(a, IncisionAreaExponent) * s;"),
+    ("incision[receiver] = Math.Min(incision[cell] * DownstreamDecay, MaxDepthPerHalfWidth * incisionWidth[receiver]);",
+     "incision[receiver] = incision[cell] * DownstreamDecay;"),
+    ("Add(list, pb, end, end, widthB * 0.6f, widthEnd, 0f, depthEnd, broadB, skew, cells[b], filledB, filledEnd, true,\n                        0f, incEnd, incWB * 0.8f, incWEnd, node);",
+     "Add(list, pb, end, end, widthB * 0.6f, widthEnd, depthB * 0.5f, depthEnd, broadB, skew, cells[b], filledB, filledEnd, true,\n                        incB * 0.5f, incEnd, incWB * 0.8f, incWEnd, node);"),
+    ("float width = halfWidth * (1f + g.Skew * (float)Math.Max(-1.0, Math.Min(1.0, sideNorm / 0.35)));",
+     "float width = halfWidth * (1f + (sideNorm >= 0.0 ? g.Skew : -g.Skew));"),
+])
+print('patched before (A)')

@@ -1,0 +1,29 @@
+Valley (seed 1337, deepest final incision outside the poles): direction (0.562216, -0.111277, -0.819470), final incision 1280 m; confluence: (0.581953, -0.114386, -0.805137), 2 tributaries, final incision 1242 m
+Lighting A overview_P1: sun height 0.55
+Lighting A valley_P3: sun height 0.55
+Lighting A confluence: sun height 0.55
+Lighting A valley_floor: sun height 0.55
+Lighting A plateau: sun height 0.55
+Lighting A plain: sun height 0.55
+Lighting B overview_P1: sun height 0.55
+Lighting B valley_P3: sun height 0.55
+Lighting B confluence: sun height 0.55
+Lighting B valley_floor: sun height 0.55
+Lighting B plateau: sun height 0.55
+Lighting B plain: sun height 0.55
+Lighting C overview_P1: sun height 0.55
+Lighting C valley_P3: sun height 0.55
+Lighting C confluence: sun height 0.55
+Lighting C valley_floor: sun height 0.55
+Lighting C plateau: sun height 0.55
+Lighting C plain: sun height 0.55
+Image difference vs A (mean abs, 0-255), overview_P1: 250km: clay B-A 0.2 C-A 0.4 20km: clay B-A 3.6 C-A 7.0
+Image difference vs A (mean abs, 0-255), valley_P3: 250km: clay B-A 0.4 C-A 0.8 20km: clay B-A 0.0 C-A 0.9 2km: clay B-A 2.1 C-A 3.2 200m: clay B-A 2.3 C-A 3.0
+Image difference vs A (mean abs, 0-255), confluence: 20km: clay B-A 15.3 C-A 17.8 2km: clay B-A 16.9 C-A 26.3 200m: clay B-A 14.8 C-A 26.0
+Image difference vs A (mean abs, 0-255), valley_floor: 20km: clay B-A 4.5 C-A 7.1 2km: clay B-A 14.4 C-A 26.6 200m: clay B-A 16.8 C-A 32.8 20m: clay B-A 16.7 C-A 33.4
+Image difference vs A (mean abs, 0-255), plateau: 20km: clay B-A 0.6 C-A 0.8 2km: clay B-A 0.9 C-A 1.1
+Image difference vs A (mean abs, 0-255), plain: 20km: clay B-A 0.0 C-A 0.1 2km: clay B-A 0.0 C-A 0.0
+Incision seed 1337: 5948 segments, node incision p10 162 p50 477 p90 833 max 1341 m; half width p10 862 p50 1399 p90 3019 m; network 192 ms
+Incision seed 310929: 22024 segments, node incision p10 200 p50 533 p90 864 max 1464 m; half width p10 897 p50 1592 p90 3245 m; network 187 ms
+Perf erosion strength 0: patch build 14.091 ms/patch (24 mountain patches x 10), planet construction 317 ms, cold LOD settle at 2 km 20984 ms (1023 patches)
+Perf erosion strength 1: patch build 17.369 ms/patch (24 mountain patches x 10), planet construction 323 ms, cold LOD settle at 2 km 25389 ms (1023 patches)

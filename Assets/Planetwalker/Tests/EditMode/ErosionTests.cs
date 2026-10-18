@@ -14,7 +14,8 @@ using Object = UnityEngine.Object;
 namespace Planetwalker.Tests
 {
     /// <summary>
-    /// Erosion foundation (V0.2.0G.2A): the stage is in the canonical evaluation path, its displacement is exactly zero,
+    /// Erosion foundation (V0.2.0G.2A, model None; since V0.2.0G.2B the model a G.2A world archived, and the fluvial model is
+    /// FluvialIncisionTests): the stage is in the canonical evaluation path, its displacement is exactly zero,
     /// the G.1.1 terrain is bit-identical with it on or off, it is deterministic and independent of LOD paths and of the
     /// floating origin, archives before G.2A load with it off, and its cost is measured.
     /// </summary>
@@ -35,7 +36,7 @@ namespace Planetwalker.Tests
         {
             if (!Planets.TryGetValue((seed, erosion), out PlanetInstance planet))
             {
-                planet = new PlanetInstance(new PlanetDefinition { seed = seed, erosionStrength = erosion });
+                planet = new PlanetInstance(new PlanetDefinition { seed = seed, erosionStrength = erosion, erosionModel = (int)ErosionModel.None });
                 Planets[(seed, erosion)] = planet;
             }
             return planet;
@@ -142,6 +143,7 @@ namespace Planetwalker.Tests
             Assert.AreEqual(off.MaxElevation, on.MaxElevation);
             Assert.AreEqual(off.LandFraction, on.LandFraction);
             Assert.IsTrue(new PlanetDefinition().erosionStrength == 1f, "New worlds carry the stage");
+            Assert.AreEqual((int)ErosionModel.Fluvial, new PlanetDefinition().erosionModel, "...with the fluvial model (V0.2.0G.2B)");
             Assert.IsFalse(new PlanetDefinition { erosionStrength = 0f }.TerrainEquals(new PlanetDefinition()), "A terrain setting (regeneration follows it)");
         }
 
@@ -149,8 +151,8 @@ namespace Planetwalker.Tests
         [Test]
         public void C_Deterministic_AcrossRepeatedEvaluations_AndFreshContexts()
         {
-            var a = new PlanetInstance(new PlanetDefinition { seed = Seed });
-            var b = new PlanetInstance(new PlanetDefinition { seed = Seed });
+            var a = new PlanetInstance(new PlanetDefinition { seed = Seed, erosionModel = 0 });
+            var b = new PlanetInstance(new PlanetDefinition { seed = Seed, erosionModel = 0 });
             Assert.AreNotSame(a.Height.SurfaceDetail.Erosion.Context, b.Height.SurfaceDetail.Erosion.Context);
             Assert.AreEqual(a.Height.SurfaceDetail.Erosion.Context.Seed, b.Height.SurfaceDetail.Erosion.Context.Seed);
             var list = new List<Vector3d>(Spiral(3000));
@@ -217,6 +219,7 @@ namespace Planetwalker.Tests
             WorldConfiguration c = WorldArchiveTestUtil.Tweaked(Seed, flipFlags: false);
             c.Terrain.resolution = 16;
             c.Terrain.erosionStrength = 1f;
+            c.Terrain.erosionModel = 0;
             host.Apply(c);
             host.Definition.seed = Seed;
             host.Regenerate();
@@ -258,6 +261,7 @@ namespace Planetwalker.Tests
             ArchiveReadResult read = PlanetArchiveSerializer.Read(without);
             Assert.IsTrue(read.Ok, read.Report.Summary());
             Assert.AreEqual(0f, read.Archive.Configuration.Terrain.erosionStrength);
+            Assert.AreEqual(0, read.Archive.Configuration.Terrain.erosionModel, "Nor the model: a G.1.1 world is bit-identical");
             PlanetDefinition recorded = archive.Configuration.Terrain.Clone();
             var loaded = new PlanetInstance(read.Archive.Configuration.Terrain);
             var written = new PlanetInstance(recorded);
@@ -292,7 +296,7 @@ namespace Planetwalker.Tests
             PlanetInstance off = Planet(0f), on = Planet(1f);
             double offUs = Math.Min(Time(off), Time(off)), onUs = Math.Min(Time(on), Time(on));
             var sw = Stopwatch.StartNew();
-            var context = new ErosionContext(on.Scale, Seed, on.SeaLevel, 1f, on.Height.SurfaceDetail.Landforms);
+            var context = new ErosionContext(on.Scale, Seed, on.SeaLevel, 1f, on.Height.SurfaceDetail.Landforms, ErosionModel.None);
             double contextMs = sw.Elapsed.TotalMilliseconds;
             TestContext.WriteLine($"canonical elevation: {offUs:0.00} us/sample without the stage, {onUs:0.00} us/sample with it ({(onUs - offUs) / offUs * 100.0:+0.0;-0.0} %); context construction {contextMs:0.000} ms (reported {context.BuildMilliseconds:0.000} ms)");
             Assert.IsNotNull(context.Valleys);

@@ -52,7 +52,7 @@ namespace Planetwalker.Rendering
         static readonly Color Clay = new Color(0.62f, 0.60f, 0.57f);
         static readonly Color NoLandform = new Color(0.22f, 0.22f, 0.23f);
         const float DisplacementScaleMeters = 2500f;
-        const float ErosionScaleMeters = 500f;
+        const float ErosionScaleMeters = 1500f; // the deepest incision at strength 1 (V0.2.0G.2B); zero is neutral gray
         static readonly Color ErosionNeutral = new Color(0.45f, 0.45f, 0.46f);
 
         /// <summary>Regional landform views (V0.2.0G.1).</summary>
@@ -69,8 +69,9 @@ namespace Planetwalker.Rendering
                     return NoLandform; // stage off
                 }
                 float meters = (float)(sample.Erosion * height.SurfaceDetail.Erosion.Context.Scale.RadiusMeters);
+                // Linear in depth (no square root: a negligible incision must not look dramatic); blue = lowered.
                 float t = Mathf.Clamp(meters / ErosionScaleMeters, -1f, 1f);
-                return Color.Lerp(ErosionNeutral, t < 0f ? Down : Up, Mathf.Sqrt(Mathf.Abs(t)));
+                return Color.Lerp(ErosionNeutral, t < 0f ? Down : Up, Mathf.Abs(t));
             }
             if (height.SurfaceDetail.Landforms == null)
             {

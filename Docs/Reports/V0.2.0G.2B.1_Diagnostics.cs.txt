@@ -1,0 +1,218 @@
+// ---- G2BProfiles (longitudinal / cross-section / river diagnostics)
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
+using NUnit.Framework;
+using Planetwalker.Core;
+using Planetwalker.Generation;
+using Planetwalker.Persistence;
+using UnityEngine;
+
+namespace Planetwalker.Tests
+{
+    /// <summary>G.2B.1 reproduction: longitudinal profiles at channel heads, cross-sections, slope statistics (authoritative field).</summary>
+    public class G2BProfiles
+    {
+        static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+
+        [Test]
+        public void Run()
+        {
+            var log = new StringBuilder();
+            WorldConfiguration c = WorldArchiveTestUtil.Tweaked(1337, flipFlags: false);
+            PlanetDefinition def = c.Terrain.Clone(); def.seed = 1337; def.erosionStrength = 1f; def.erosionModel = 1; def.regionalLandforms = 1f; def.surfaceDetail = true;
+            var on = new PlanetInstance(def);
+            PlanetDefinition defOff = def.Clone(); defOff.erosionStrength = 0f;
+            var off = new PlanetInstance(defOff);
+            double R = on.Scale.RadiusMeters;
+            ValleyNetwork net = on.Height.SurfaceDetail.Landforms.Valleys;
+            HydrologyResult h = net.Hydrology;
+            var channelCells = new HashSet<int>();
+            for (int s = 0; s < net.SegmentCount; s++) channelCells.Add(net.GetSegment(s).Cell);
+            var upstream = new int[h.Grid.CellCount]; // channel cells upstream of each cell
+            foreach (int cell in channelCells) { int r = h.GetReceiver(cell); if (r >= 0) upstream[r]++; }
+
+            float Height(PlanetInstance p, Vector3d d) => (float)((p.Height.GetElevation(d) - p.SeaLevel) * R);
+
+            // 1. Heads: node incision at channel heads (cells with no channel upstream) and the terrain along the head curve.
+            var headInc = new List<float>();
+            int heads = 0; float worstHeadWall = 0f; string worstHeadAt = "";
+            var seen = new HashSet<int>();
+            for (int s = 0; s < net.SegmentCount; s++)
+            {
+                ValleyNetwork.Segment g = net.GetSegment(s);
+                if (!seen.Add(g.Cell) || upstream[g.Cell] != 0) continue;
+                heads++;
+                headInc.Add(net.NodeIncision(g.Cell));
+                if (net.NodeIncision(g.Cell) < 100f) continue;
+                // Longitudinal profile through the head: 30 km upstream (straight back along the first segment) to 30 km downstream, 250 m steps.
+                Vector3d a = g.A, b = g.B; // the first subdivision of the head curve starts at the node
+                Vector3d dir = (b - a).Normalized;
+                float previous = float.NaN; float maxDrop = 0f; Vector3d at = a;
+                for (int k = -120; k <= 120; k++)
+                {
+                    Vector3d d = (a + dir * (k * 250.0 / R)).Normalized;
+                    float hgt = Height(on, d) - Height(off, d); // the incision contribution only
+                    if (!float.IsNaN(previous)) { float drop = Math.Abs(hgt - previous); if (drop > maxDrop) { maxDrop = drop; at = d; } }
+                    previous = hgt;
+                }
+                if (maxDrop > worstHeadWall) { worstHeadWall = maxDrop; worstHeadAt = string.Format(Inv, "({0:0.000000}, {1:0.000000}, {2:0.000000}) node incision {3:0} m, cells {4:0}", at.x, at.y, at.z, net.NodeIncision(g.Cell), g.Cells); }
+            }
+            headInc.Sort();
+            log.AppendLine(string.Format(Inv, "heads {0}: node incision p50 {1:0} p90 {2:0} max {3:0} m; worst incision change per 250 m step along a head curve {4:0} m at {5}",
+                heads, headInc[headInc.Count / 2], headInc[(int)(headInc.Count * 0.9)], headInc[headInc.Count - 1], worstHeadWall, worstHeadAt));
+
+            // 2. Cross-sections: steepest incision slope across channels (authoritative field, 10 m steps), on 400 channel points.
+            float worstSlope = 0f; string worstSlopeAt = ""; var slopes = new List<float>();
+            for (int s = 0; s < net.SegmentCount; s += Math.Max(1, net.SegmentCount / 400))
+            {
+                ValleyNetwork.Segment g = net.GetSegment(s);
+                if (g.IncisionB < 200f) continue;
+                Vector3d axis = g.B, flow = (g.B - g.A).Normalized;
+                Vector3d across = Vector3d.Cross(flow, axis).Normalized;
+                float previous = float.NaN, maxS = 0f;
+                for (int k = -800; k <= 800; k++)
+                {
+                    Vector3d d = (axis + across * (k * 10.0 / R)).Normalized;
+                    float hgt = Height(on, d);
+                    if (!float.IsNaN(previous)) maxS = Math.Max(maxS, Math.Abs(hgt - previous) / 10f);
+                    previous = hgt;
+                }
+                slopes.Add(maxS);
+                if (maxS > worstSlope) { worstSlope = maxS; worstSlopeAt = string.Format(Inv, "({0:0.000000}, {1:0.000000}, {2:0.000000}) incision {3:0} m, half width {4:0} m, valley depth {5:0} m, half width {6:0} m", axis.x, axis.y, axis.z, g.IncisionB, g.IncisionHalfWidthB, g.DepthB, g.HalfWidthB); }
+            }
+            slopes.Sort();
+            log.AppendLine(string.Format(Inv, "cross-sections ({0}): max slope p50 {1:0.00} p90 {2:0.00} max {3:0.00} (rise/run; 1.0 = 45 deg, 1.73 = 60 deg) at {4}", slopes.Count, slopes[slopes.Count / 2], slopes[(int)(slopes.Count * 0.9)], worstSlope, worstSlopeAt));
+            // Same cross-sections without erosion: the G.1.1 baseline slopes.
+            var slopesOff = new List<float>();
+            for (int s = 0; s < net.SegmentCount; s += Math.Max(1, net.SegmentCount / 400))
+            {
+                ValleyNetwork.Segment g = net.GetSegment(s);
+                if (g.IncisionB < 200f) continue;
+                Vector3d axis = g.B, flow = (g.B - g.A).Normalized, across = Vector3d.Cross(flow, axis).Normalized;
+                float previous = float.NaN, maxS = 0f;
+                for (int k = -800; k <= 800; k++) { Vector3d d = (axis + across * (k * 10.0 / R)).Normalized; float hgt = Height(off, d); if (!float.IsNaN(previous)) maxS = Math.Max(maxS, Math.Abs(hgt - previous) / 10f); previous = hgt; }
+                slopesOff.Add(maxS);
+            }
+            slopesOff.Sort();
+            log.AppendLine(string.Format(Inv, "same cross-sections without erosion: max slope p50 {0:0.00} p90 {1:0.00} max {2:0.00}", slopesOff[slopesOff.Count / 2], slopesOff[(int)(slopesOff.Count * 0.9)], slopesOff[slopesOff.Count - 1]));
+
+            // 3. The artifact locations from the G.2B presets: slope of the incision contribution alone on a 2 km transect, 5 m steps.
+            foreach ((string name, Vector3d d0) in new[] { ("valley_floor", new Vector3d(0.562216, -0.111277, -0.819470)), ("confluence", new Vector3d(0.581953, -0.114386, -0.805137)) })
+            {
+                Vector3d d = d0.Normalized;
+                net.Nearest(d, out ValleyNetwork.ChannelQuery q);
+                Vector3d across = Vector3d.Cross(q.Flow, d).Normalized;
+                float previous = float.NaN, maxS = 0f, maxTotal = 0f;
+                for (int k = -400; k <= 400; k++)
+                {
+                    Vector3d p = (d + across * (k * 5.0 / R)).Normalized;
+                    float inc = Height(on, p) - Height(off, p), tot = Height(on, p);
+                    if (!float.IsNaN(previous)) maxS = Math.Max(maxS, Math.Abs(inc - previous) / 5f);
+                    previous = inc; maxTotal = Math.Max(maxTotal, Math.Abs(tot));
+                }
+                log.AppendLine(string.Format(Inv, "{0}: incision {1:0} m, half width {2:0} m, max incision slope across (5 m steps) {3:0.00}", name, q.IncisionMeters, q.IncisionHalfWidthMeters, maxS));
+            }
+
+            // 4. Rivers vs terrain: legacy surface (what the river ribbons sit on) vs final surface along channel axes.
+            float maxAbove = 0f, maxBelow = 0f; int n = 0;
+            for (int s = 0; s < net.SegmentCount; s += 5)
+            {
+                ValleyNetwork.Segment g = net.GetSegment(s);
+                if (g.IncisionB < 100f) continue;
+                Vector3d d = g.B; n++;
+                float legacy = (float)((on.GetLegacyElevation(d.ToVector3()) - on.SeaLevel) * R), final = Height(on, d);
+                maxAbove = Math.Max(maxAbove, legacy - final); maxBelow = Math.Max(maxBelow, final - legacy);
+            }
+            log.AppendLine(string.Format(Inv, "rivers: legacy surface vs final terrain on {0} channel points: legacy above the final floor by up to {1:0} m (ribbons float), final above legacy by up to {2:0} m (ribbons buried)", n, maxAbove, maxBelow));
+            System.IO.File.WriteAllText(@"C:\Users\Philippe\AppData\Local\Temp\claude\C--Users-Philippe-Documents-Programming-Unity-Projects-planetwalker\92a57fea-0dca-4c6f-a05a-b46236670522\scratchpad\g2bprofiles.txt", log.ToString());
+        }
+    }
+}
+
+// ---- G2BProbe (layer decomposition at the worst cross-section)
+using System;
+using System.Globalization;
+using System.Text;
+using NUnit.Framework;
+using Planetwalker.Core;
+using Planetwalker.Generation;
+using Planetwalker.Persistence;
+using UnityEngine;
+
+namespace Planetwalker.Tests
+{
+    /// <summary>G.2B.1: which layer puts the near-vertical step at the worst cross-section (10 m steps, each component).</summary>
+    public class G2BProbe
+    {
+        [Test]
+        public void Run()
+        {
+            var inv = CultureInfo.InvariantCulture;
+            var log = new StringBuilder();
+            WorldConfiguration c = WorldArchiveTestUtil.Tweaked(1337, flipFlags: false);
+            PlanetDefinition def = c.Terrain.Clone(); def.seed = 1337; def.erosionStrength = 1f; def.erosionModel = 1; def.regionalLandforms = 1f; def.surfaceDetail = true;
+            var on = new PlanetInstance(def);
+            double R = on.Scale.RadiusMeters;
+            ValleyNetwork net = on.Height.SurfaceDetail.Landforms.Valleys;
+            foreach ((string name, Vector3d axis0) in new[] { ("worst", new Vector3d(-0.834666, -0.546661, -0.067039)), ("valley_floor", new Vector3d(0.562216, -0.111277, -0.819470)) })
+            {
+                Vector3d axis = axis0.Normalized;
+                net.Nearest(axis, out ValleyNetwork.ChannelQuery q);
+                Vector3d across = Vector3d.Cross(q.Flow, axis).Normalized;
+                string[] names = { "e0", "landform", "erosion", "regional", "local", "micro", "total" };
+                var maxStep = new float[7]; var at = new int[7];
+                float[] previous = null;
+                for (int k = -800; k <= 800; k++)
+                {
+                    Vector3d d = (axis + across * (k * 10.0 / R)).Normalized;
+                    float e = on.Height.GetElevation(d, 0f, out TerrainBaseSample ctx);
+                    on.Height.SurfaceDetail.Evaluate(d, d.ToVector3(), ctx, 0f, out TerrainDetailSample s);
+                    var v = new[] { ctx.Elevation, s.Landform, s.Erosion, s.Regional, s.Local, s.Micro, e };
+                    for (int i = 0; i < 7; i++) v[i] = (float)(v[i] * R);
+                    if (previous != null) for (int i = 0; i < 7; i++) { float st = Math.Abs(v[i] - previous[i]); if (st > maxStep[i]) { maxStep[i] = st; at[i] = k; } }
+                    previous = v;
+                }
+                log.Append($"{name}:");
+                for (int i = 0; i < 7; i++) log.Append(string.Format(inv, " {0} {1:0.0} m/10 m @ {2:+0;-0} m;", names[i], maxStep[i], at[i] * 10));
+                // Mask terms around the worst regional step.
+                int kr = at[3];
+                for (int k = kr - 2; k <= kr + 2; k++)
+                {
+                    Vector3d d = (axis + across * (k * 10.0 / R)).Normalized;
+                    on.Height.GetElevation(d, 0f, out TerrainBaseSample ctx);
+                    on.Height.SurfaceDetail.Evaluate(d, d.ToVector3(), ctx, 0f, out TerrainDetailSample s);
+                    float slope = on.Height.SurfaceDetail.Relief.Sample(d.ToVector3());
+                    float character = on.Height.SurfaceDetail.Character(d.ToVector3());
+                    float carve = net.Carve(d, 0f, out float corridor);
+                    log.Append(string.Format(inv, "\n   k {0}: regional {1:0.0} m, local {2:0.0} m, calm {3:0.000}, edge {4:0.000}, corridor {5:0.000}, valley {6:0.000}, plateau {7:0.000}, relief slope {8:0.0000}, core {9:0.000}, influence {10:0.000}, character {11:0.000}, anisotropy {12}, h {13:0} m, carve {14:0} m",
+                        k, s.Regional * R, s.Local * R, s.Landforms.Calm, s.Landforms.Edge, corridor, s.Landforms.Valley, s.Landforms.Plateau, slope, ctx.Core, ctx.Influence, character, ctx.Anisotropy, (ctx.Elevation - on.SeaLevel + s.Landform) * R, carve));
+                }
+                // Direct (float path) anisotropy along the transect around the step: is the field itself discontinuous?
+                for (int k = kr - 6; k <= kr + 6; k += 2)
+                {
+                    Vector3d d = (axis + across * (k * 10.0 / R)).Normalized;
+                    on.Height.SampleBase(d.ToVector3(), out TerrainBaseSample direct);
+                    log.Append(string.Format(inv, "\n   k {0}: direct anisotropy ({1:0.0000}, {2:0.0000}, {3:0.0000}) |{4:0.0000}|, influence {5:0.000}", k, direct.Anisotropy.x, direct.Anisotropy.y, direct.Anisotropy.z, direct.Anisotropy.magnitude, direct.Influence));
+                }
+                for (int k = -800; k <= 800; k += 40)
+                {
+                    Vector3d d = (axis + across * (k * 10.0 / R)).Normalized;
+                    on.Height.SampleBase(d.ToVector3(), out TerrainBaseSample direct);
+                    log.Append(string.Format(inv, "\n   coarse k {0}: |anisotropy| {1:0.0000} ({2:0.000}, {3:0.000}, {4:0.000})", k, direct.Anisotropy.magnitude, direct.Anisotropy.x, direct.Anisotropy.y, direct.Anisotropy.z));
+                }
+                // The fine-lattice e0 vs the direct float e0 around the worst e0 step.
+                int kw = at[0];
+                for (int k = kw - 3; k <= kw + 3; k++)
+                {
+                    Vector3d d = (axis + across * (k * 10.0 / R)).Normalized;
+                    float fine = on.Height.FineBaseElevation(d), direct = on.Height.GetBaseElevation(d.ToVector3());
+                    log.Append(string.Format(inv, "\n   k {0}: fine e0 {1:0.0} m, direct e0 {2:0.0} m", k, fine * R, direct * R));
+                }
+                log.AppendLine();
+            }
+            System.IO.File.WriteAllText(@"C:\Users\Philippe\AppData\Local\Temp\claude\C--Users-Philippe-Documents-Programming-Unity-Projects-planetwalker\92a57fea-0dca-4c6f-a05a-b46236670522\scratchpad\g2bprobe.txt", log.ToString());
+        }
+    }
+}

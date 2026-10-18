@@ -1,0 +1,49 @@
+# V0.2.0G.2B.1 A / B / C captures (batch, EditMode rendering)
+
+| File | Scenario | Seed | Clearance | Camera (planet space, render units) | LOD budget | Mode | View | Note |
+|---|---|---|---|---|---|---|---|---|
+| A_headwater_20km_pbr.png | G.2B.1 A | 1337 | 20000.0 m | (84.276466, -33.104498, -81.229528) | 1024 | Pbr | FinalLit | seed 1337 headwater, 20km, pitch -35, view pbr, erosion strength 1, sun height 0,55 |
+| A_headwater_2km_pbr.png | G.2B.1 A | 1337 | 2000.0 m | (83.835019, -32.931094, -80.804041) | 1024 | Pbr | FinalLit | seed 1337 headwater, 2km, pitch -15, view pbr, erosion strength 1, sun height 0,55 |
+| A_headwater_200m_pbr.png | G.2B.1 A | 1337 | 200.0 m | (83.790874, -32.913753, -80.761493) | 1024 | Pbr | FinalLit | seed 1337 headwater, 200m, pitch -6, view pbr, erosion strength 1, sun height 0,55 |
+| A_headwater_20m_pbr.png | G.2B.1 A | 1337 | 20.0 m | (83.786460, -32.912019, -80.757238) | 1024 | Pbr | FinalLit | seed 1337 headwater, 20m, pitch -3, view pbr, erosion strength 1, sun height 0,55 |
+| A_headwater_20km_clay.png | G.2B.1 A | 1337 | 20000.0 m | (84.276466, -33.104498, -81.229528) | 1024 | Pbr | FinalLit | seed 1337 headwater, 20km, pitch -35, view clay, erosion strength 1, sun height 0,55 |
+| A_headwater_2km_clay.png | G.2B.1 A | 1337 | 2000.0 m | (83.835019, -32.931094, -80.804041) | 1024 | Pbr | FinalLit | seed 1337 headwater, 2km, pitch -15, view clay, erosion strength 1, sun height 0,55 |
+| A_headwater_200m_clay.png | G.2B.1 A | 1337 | 200.0 m | (83.790874, -32.913753, -80.761493) | 1024 | Pbr | FinalLit | seed 1337 headwater, 200m, pitch -6, view clay, erosion strength 1, sun height 0,55 |
+| A_headwater_20m_clay.png | G.2B.1 A | 1337 | 20.0 m | (83.786460, -32.912019, -80.757238) | 1024 | Pbr | FinalLit | seed 1337 headwater, 20m, pitch -3, view clay, erosion strength 1, sun height 0,55 |
+| A_headwater_20km_erosion.png | G.2B.1 A | 1337 | 20000.0 m | (84.276466, -33.104498, -81.229528) | 1024 | Pbr | FinalLit | seed 1337 headwater, 20km, pitch -35, view erosion, erosion strength 1, sun height 0,55 |
+| A_headwater_2km_erosion.png | G.2B.1 A | 1337 | 2000.0 m | (83.835019, -32.931094, -80.804041) | 1024 | Pbr | FinalLit | seed 1337 headwater, 2km, pitch -15, view erosion, erosion strength 1, sun height 0,55 |
+| A_headwater_200m_erosion.png | G.2B.1 A | 1337 | 200.0 m | (83.790874, -32.913753, -80.761493) | 1024 | Pbr | FinalLit | seed 1337 headwater, 200m, pitch -6, view erosion, erosion strength 1, sun height 0,55 |
+| A_headwater_20m_erosion.png | G.2B.1 A | 1337 | 20.0 m | (83.786460, -32.912019, -80.757238) | 1024 | Pbr | FinalLit | seed 1337 headwater, 20m, pitch -3, view erosion, erosion strength 1, sun height 0,55 |
+| A_wall_2km_pbr.png | G.2B.1 A | 1337 | 2000.0 m | (-100.875631, -66.068072, -8.102165) | 1024 | Pbr | FinalLit | seed 1337 wall, 2km, pitch -15, view pbr, erosion strength 1, sun height 0,55 |
+| A_wall_200m_pbr.png | G.2B.1 A | 1337 | 200.0 m | (-100.822449, -66.033240, -8.097893) | 1024 | Pbr | FinalLit | seed 1337 wall, 200m, pitch -6, view pbr, erosion strength 1, sun height 0,55 |
+| A_wall_2km_clay.png | G.2B.1 A | 1337 | 2000.0 m | (-100.875631, -66.068072, -8.102165) | 1024 | Pbr | FinalLit | seed 1337 wall, 2km, pitch -15, view clay, erosion strength 1, sun height 0,55 |
+| A_wall_200m_clay.png | G.2B.1 A | 1337 | 200.0 m | (-100.822449, -66.033240, -8.097893) | 1024 | Pbr | FinalLit | seed 1337 wall, 200m, pitch -6, view clay, erosion strength 1, sun height 0,55 |
+| A_wall_2km_erosion.png | G.2B.1 A | 1337 | 2000.0 m | (-100.875631, -66.068072, -8.102165) | 1024 | Pbr | FinalLit | seed 1337 wall, 2km, pitch -15, view erosion, erosion strength 1, sun height 0,55 |
+| A_wall_200m_erosion.png | G.2B.1 A | 1337 | 200.0 m | (-100.822449, -66.033240, -8.097893) | 1024 | Pbr | FinalLit | seed 1337 wall, 200m, pitch -6, view erosion, erosion strength 1, sun height 0,55 |
+| A_valley_floor_20km_pbr.png | G.2B.1 A | 1337 | 20000.0 m | (68.689920, -13.595501, -100.120467) | 1024 | Pbr | FinalLit | seed 1337 valley_floor, 20km, pitch -35, view pbr, erosion strength 1, sun height 0,55 |
+| A_valley_floor_2km_pbr.png | G.2B.1 A | 1337 | 2000.0 m | (68.331694, -13.524599, -99.598327) | 1024 | Pbr | FinalLit | seed 1337 valley_floor, 2km, pitch -15, view pbr, erosion strength 1, sun height 0,55 |
+| A_valley_floor_200m_pbr.png | G.2B.1 A | 1337 | 200.0 m | (68.295871, -13.517509, -99.546113) | 1024 | Pbr | FinalLit | seed 1337 valley_floor, 200m, pitch -6, view pbr, erosion strength 1, sun height 0,55 |
+| A_valley_floor_20m_pbr.png | G.2B.1 A | 1337 | 20.0 m | (68.292289, -13.516800, -99.540892) | 1024 | Pbr | FinalLit | seed 1337 valley_floor, 20m, pitch -3, view pbr, erosion strength 1, sun height 0,55 |
+| A_valley_floor_20km_clay.png | G.2B.1 A | 1337 | 20000.0 m | (68.689920, -13.595501, -100.120467) | 1024 | Pbr | FinalLit | seed 1337 valley_floor, 20km, pitch -35, view clay, erosion strength 1, sun height 0,55 |
+| A_valley_floor_2km_clay.png | G.2B.1 A | 1337 | 2000.0 m | (68.331694, -13.524599, -99.598327) | 1024 | Pbr | FinalLit | seed 1337 valley_floor, 2km, pitch -15, view clay, erosion strength 1, sun height 0,55 |
+| A_valley_floor_200m_clay.png | G.2B.1 A | 1337 | 200.0 m | (68.295871, -13.517509, -99.546113) | 1024 | Pbr | FinalLit | seed 1337 valley_floor, 200m, pitch -6, view clay, erosion strength 1, sun height 0,55 |
+| A_valley_floor_20m_clay.png | G.2B.1 A | 1337 | 20.0 m | (68.292289, -13.516800, -99.540892) | 1024 | Pbr | FinalLit | seed 1337 valley_floor, 20m, pitch -3, view clay, erosion strength 1, sun height 0,55 |
+| A_valley_floor_20km_erosion.png | G.2B.1 A | 1337 | 20000.0 m | (68.689920, -13.595501, -100.120467) | 1024 | Pbr | FinalLit | seed 1337 valley_floor, 20km, pitch -35, view erosion, erosion strength 1, sun height 0,55 |
+| A_valley_floor_2km_erosion.png | G.2B.1 A | 1337 | 2000.0 m | (68.331694, -13.524599, -99.598327) | 1024 | Pbr | FinalLit | seed 1337 valley_floor, 2km, pitch -15, view erosion, erosion strength 1, sun height 0,55 |
+| A_valley_floor_200m_erosion.png | G.2B.1 A | 1337 | 200.0 m | (68.295871, -13.517509, -99.546113) | 1024 | Pbr | FinalLit | seed 1337 valley_floor, 200m, pitch -6, view erosion, erosion strength 1, sun height 0,55 |
+| A_valley_floor_20m_erosion.png | G.2B.1 A | 1337 | 20.0 m | (68.292289, -13.516800, -99.540892) | 1024 | Pbr | FinalLit | seed 1337 valley_floor, 20m, pitch -3, view erosion, erosion strength 1, sun height 0,55 |
+| A_confluence_20km_pbr.png | G.2B.1 A | 1337 | 20000.0 m | (71.629798, -14.079223, -99.100443) | 1024 | Pbr | FinalLit | seed 1337 confluence, 20km, pitch -35, view pbr, erosion strength 1, sun height 0,55 |
+| A_confluence_2km_pbr.png | G.2B.1 A | 1337 | 2000.0 m | (71.258996, -14.006340, -98.587436) | 1024 | Pbr | FinalLit | seed 1337 confluence, 2km, pitch -15, view pbr, erosion strength 1, sun height 0,55 |
+| A_confluence_200m_pbr.png | G.2B.1 A | 1337 | 200.0 m | (71.221915, -13.999051, -98.536135) | 1024 | Pbr | FinalLit | seed 1337 confluence, 200m, pitch -6, view pbr, erosion strength 1, sun height 0,55 |
+| A_confluence_20km_clay.png | G.2B.1 A | 1337 | 20000.0 m | (71.629798, -14.079223, -99.100443) | 1024 | Pbr | FinalLit | seed 1337 confluence, 20km, pitch -35, view clay, erosion strength 1, sun height 0,55 |
+| A_confluence_2km_clay.png | G.2B.1 A | 1337 | 2000.0 m | (71.258996, -14.006340, -98.587436) | 1024 | Pbr | FinalLit | seed 1337 confluence, 2km, pitch -15, view clay, erosion strength 1, sun height 0,55 |
+| A_confluence_200m_clay.png | G.2B.1 A | 1337 | 200.0 m | (71.221915, -13.999051, -98.536135) | 1024 | Pbr | FinalLit | seed 1337 confluence, 200m, pitch -6, view clay, erosion strength 1, sun height 0,55 |
+| A_confluence_20km_erosion.png | G.2B.1 A | 1337 | 20000.0 m | (71.629798, -14.079223, -99.100443) | 1024 | Pbr | FinalLit | seed 1337 confluence, 20km, pitch -35, view erosion, erosion strength 1, sun height 0,55 |
+| A_confluence_2km_erosion.png | G.2B.1 A | 1337 | 2000.0 m | (71.258996, -14.006340, -98.587436) | 1024 | Pbr | FinalLit | seed 1337 confluence, 2km, pitch -15, view erosion, erosion strength 1, sun height 0,55 |
+| A_confluence_200m_erosion.png | G.2B.1 A | 1337 | 200.0 m | (71.221915, -13.999051, -98.536135) | 1024 | Pbr | FinalLit | seed 1337 confluence, 200m, pitch -6, view erosion, erosion strength 1, sun height 0,55 |
+| A_plateau_2km_pbr.png | G.2B.1 A | 1337 | 2000.0 m | (15.910545, 61.537703, -102.882142) | 1024 | Pbr | FinalLit | seed 310929 plateau, 2km, pitch -12, view pbr, erosion strength 1, sun height 0,55 |
+| A_plateau_2km_clay.png | G.2B.1 A | 1337 | 2000.0 m | (15.910545, 61.537703, -102.882142) | 1024 | Pbr | FinalLit | seed 310929 plateau, 2km, pitch -12, view clay, erosion strength 1, sun height 0,55 |
+| A_plateau_2km_erosion.png | G.2B.1 A | 1337 | 2000.0 m | (15.910545, 61.537703, -102.882142) | 1024 | Pbr | FinalLit | seed 310929 plateau, 2km, pitch -12, view erosion, erosion strength 1, sun height 0,55 |
+| A_plain_2km_pbr.png | G.2B.1 A | 1337 | 2000.0 m | (-23.578909, 21.783823, 115.952435) | 1024 | Pbr | FinalLit | seed 310929 plain, 2km, pitch -12, view pbr, erosion strength 1, sun height 0,55 |
+| A_plain_2km_clay.png | G.2B.1 A | 1337 | 2000.0 m | (-23.578909, 21.783823, 115.952435) | 1024 | Pbr | FinalLit | seed 310929 plain, 2km, pitch -12, view clay, erosion strength 1, sun height 0,55 |
+| A_plain_2km_erosion.png | G.2B.1 A | 1337 | 2000.0 m | (-23.578909, 21.783823, 115.952435) | 1024 | Pbr | FinalLit | seed 310929 plain, 2km, pitch -12, view erosion, erosion strength 1, sun height 0,55 |

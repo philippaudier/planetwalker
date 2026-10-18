@@ -18,11 +18,12 @@ namespace Planetwalker.UI
         {
             PlanetDebugView.SurfaceDetailCombined, PlanetDebugView.SurfaceDetailRegional, PlanetDebugView.SurfaceDetailLocal,
             PlanetDebugView.SurfaceDetailMicro, PlanetDebugView.LandformInfluence, PlanetDebugView.LandformDisplacement,
-            PlanetDebugView.LandformRelief,
+            PlanetDebugView.LandformRelief, PlanetDebugView.ErosionDisplacement,
         };
         static readonly string[] SurfaceDetailViewNames =
         {
             "View: Combined", "View: Regional", "View: Local", "View: Micro", "View: Landforms", "View: Landform Shift", "View: Relief (clay)",
+            "View: Erosion Shift (1.5 km)",
         };
 
         [SerializeField] Toggle surfaceDetailToggle;
@@ -34,6 +35,8 @@ namespace Planetwalker.UI
         [SerializeField] Text microDetailValue;
         [SerializeField] Slider landformSlider;
         [SerializeField] Text landformValue;
+        [SerializeField] Slider erosionSlider;
+        [SerializeField] Text erosionValue;
         [SerializeField] Toggle surfaceDetailViewToggle;
         [SerializeField] Button surfaceDetailViewButton;
         [SerializeField] Text surfaceDetailViewLabel;
@@ -44,7 +47,7 @@ namespace Planetwalker.UI
         bool SurfaceDetailLayoutComplete()
         {
             return surfaceDetailToggle != null && regionalDetailSlider != null && localDetailSlider != null && microDetailSlider != null
-                && landformSlider != null && surfaceDetailViewToggle != null && surfaceDetailViewButton != null && surfaceDetailStatsText != null;
+                && landformSlider != null && erosionSlider != null && surfaceDetailViewToggle != null && surfaceDetailViewButton != null && surfaceDetailStatsText != null;
         }
 
         void BuildSurfaceDetailSection(RectTransform panel, Font font)
@@ -58,10 +61,12 @@ namespace Planetwalker.UI
             localDetailSlider = CreateSliderRow(panel, font, "Local Detail", 0f, PlanetDefinition.MaxSurfaceDetailLevel, false, out localDetailValue);
             microDetailSlider = CreateSliderRow(panel, font, "Micro Detail", 0f, PlanetDefinition.MaxSurfaceDetailLevel, false, out microDetailValue);
             landformSlider = CreateSliderRow(panel, font, "Landforms", 0f, PlanetDefinition.MaxSurfaceDetailLevel, false, out landformValue);
+            erosionSlider = CreateSliderRow(panel, font, "Erosion", 0f, PlanetDefinition.MaxSurfaceDetailLevel, false, out erosionValue);
             regionalDetailSlider.SetValueWithoutNotify(1f);
             localDetailSlider.SetValueWithoutNotify(1f);
             microDetailSlider.SetValueWithoutNotify(1f);
             landformSlider.SetValueWithoutNotify(1f);
+            erosionSlider.SetValueWithoutNotify(1f);
             var viewRow = CreateRow(panel, "Surface Detail View Row");
             surfaceDetailViewToggle = CreateToggle(viewRow, font, "Show Detail Layers");
             surfaceDetailViewButton = CreateButton(viewRow, font, SurfaceDetailViewNames[0]);
@@ -79,6 +84,7 @@ namespace Planetwalker.UI
             localDetailSlider.onValueChanged.AddListener(OnSliderChanged);
             microDetailSlider.onValueChanged.AddListener(OnSliderChanged);
             landformSlider.onValueChanged.AddListener(OnSliderChanged);
+            erosionSlider.onValueChanged.AddListener(OnSliderChanged);
             surfaceDetailViewToggle.onValueChanged.AddListener(OnSurfaceDetailViewToggled);
             surfaceDetailViewButton.onClick.AddListener(OnSurfaceDetailViewClicked);
         }
@@ -90,6 +96,7 @@ namespace Planetwalker.UI
             localDetailSlider.onValueChanged.RemoveListener(OnSliderChanged);
             microDetailSlider.onValueChanged.RemoveListener(OnSliderChanged);
             landformSlider.onValueChanged.RemoveListener(OnSliderChanged);
+            erosionSlider.onValueChanged.RemoveListener(OnSliderChanged);
             surfaceDetailViewToggle.onValueChanged.RemoveListener(OnSurfaceDetailViewToggled);
             surfaceDetailViewButton.onClick.RemoveListener(OnSurfaceDetailViewClicked);
         }
@@ -111,6 +118,7 @@ namespace Planetwalker.UI
             definition.localDetail = localDetailSlider.value;
             definition.microDetail = microDetailSlider.value;
             definition.regionalLandforms = landformSlider.value;
+            definition.erosionStrength = erosionSlider.value;
         }
 
         void SyncSurfaceDetailFromDefinition(PlanetDefinition definition)
@@ -120,6 +128,7 @@ namespace Planetwalker.UI
             localDetailSlider.SetValueWithoutNotify(definition.localDetail);
             microDetailSlider.SetValueWithoutNotify(definition.microDetail);
             landformSlider.SetValueWithoutNotify(definition.regionalLandforms);
+            erosionSlider.SetValueWithoutNotify(definition.erosionStrength);
             UpdateSurfaceDetailValueLabels();
         }
 
@@ -129,6 +138,7 @@ namespace Planetwalker.UI
             localDetailValue.text = localDetailSlider.value.ToString("0.00", CultureInfo.InvariantCulture) + "x";
             microDetailValue.text = microDetailSlider.value.ToString("0.00", CultureInfo.InvariantCulture) + "x";
             landformValue.text = landformSlider.value.ToString("0.00", CultureInfo.InvariantCulture) + "x";
+            erosionValue.text = erosionSlider.value.ToString("0.00", CultureInfo.InvariantCulture) + "x";
         }
 
         void OnSurfaceDetailViewToggled(bool show)
@@ -203,8 +213,11 @@ namespace Planetwalker.UI
                         detail.Landforms.Strength, PlanetScale.FormatDistance(scale.ElevationToMeters(detail.Landforms.MaxValleyDepth)))
                     : "\nLandforms off (V0.2.0F terrain)")
                 + (detail.Erosion != null
-                    ? string.Format(CultureInfo.InvariantCulture, "\nErosion {0:0.00}x: foundation (G.2A), displacement 0 (context {1:0.000} ms)",
-                        detail.Erosion.Context.Strength, detail.Erosion.Context.BuildMilliseconds)
+                    ? (detail.Erosion.Context.Model == ErosionModel.Fluvial
+                        ? string.Format(CultureInfo.InvariantCulture, "\nErosion {0:0.00}x: fluvial incision (G.2B), up to {1} on the drainage network",
+                            detail.Erosion.Context.Strength, PlanetScale.FormatDistance(ValleyNetwork.MaxIncisionMeters * Mathf.Min(detail.Erosion.Context.Strength, 2f)))
+                        : string.Format(CultureInfo.InvariantCulture, "\nErosion {0:0.00}x: model none (G.2A world), displacement 0",
+                            detail.Erosion.Context.Strength))
                     : "\nErosion stage off");
         }
     }

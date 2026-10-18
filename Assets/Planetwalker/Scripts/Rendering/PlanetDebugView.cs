@@ -128,8 +128,8 @@ namespace Planetwalker.Rendering
         LandformRelief,
 
         /// <summary>
-        /// Erosion displacement (V0.2.0G.2A): blue lowered, red raised (+-500 m), neutral gray where zero; dark where the
-        /// stage is off. Uniformly neutral in V0.2.0G.2A, whose displacement is zero by contract.
+        /// Erosion displacement (V0.2.0G.2B): blue lowered, linear to 1.5 km (the deepest incision at strength 1), neutral
+        /// gray where zero; dark where the stage is off. Uniformly neutral on a V0.2.0G.2A world (model none).
         /// </summary>
         ErosionDisplacement,
     }

@@ -178,13 +178,16 @@ namespace Planetwalker.Generation
                     {
                         // The ranges' drainage network (V0.2.0G.1.1), from e0 alone: built once, then a lookup.
                         PlanetScale scale = PlanetScale.Of(d);
+                        int seedForCharacter = d.seed;
                         var valleys = new ValleyNetwork(dir => { SampleBase(dir, out TerrainBaseSample s); return s; },
-                            d.seaLevel, scale.RadiusMeters, d.seed, RegionalLandforms.MaxValleyDepthMeters); // depths scaled by the strength in the landforms
+                            d.seaLevel, scale.RadiusMeters, d.seed, RegionalLandforms.MaxValleyDepthMeters, // depths scaled by the strength in the landforms
+                            dir => TerrainDetail.CharacterField(dir, seedForCharacter)); // V0.2.0G.2B: regional erodibility of the incision
                         landforms = new RegionalLandforms(scale, d.seed, d.regionalLandforms, d.seaLevel, valleys);
                     }
                     // Erosion stage (V0.2.0G.2A): the foundation, zero displacement; strength 0 builds none.
+                    // V0.2.0G.2B: the model is archived; None keeps the zero displacement of V0.2.0G.2A.
                     ErosionSampler erosion = d.erosionStrength > 0f
-                        ? new ErosionSampler(new ErosionContext(PlanetScale.Of(d), d.seed, d.seaLevel, d.erosionStrength, landforms))
+                        ? new ErosionSampler(new ErosionContext(PlanetScale.Of(d), d.seed, d.seaLevel, d.erosionStrength, landforms, (ErosionModel)d.erosionModel))
                         : null;
                     surfaceDetail = new TerrainDetail(profile, new TerrainReliefField(GetBaseElevation), d.seed, d.seaLevel, landforms, erosion);
                 }

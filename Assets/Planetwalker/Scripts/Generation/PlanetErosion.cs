@@ -5,11 +5,22 @@ using UnityEngine;
 
 namespace Planetwalker.Generation
 {
-    /// <summary>Erosion contribution at one direction (V0.2.0G.2A: always zero).</summary>
+    /// <summary>Erosion contribution at one direction.</summary>
     public struct ErosionSample
     {
-        /// <summary>Height change of the pre-erosion terrain (fraction of the radius). Zero throughout V0.2.0G.2A.</summary>
+        /// <summary>Height change of the pre-erosion terrain (fraction of the radius): never positive (incision only).</summary>
         public float Displacement;
+        /// <summary>How much of a channel the point is on, in [0, 1] (1 on an incised axis), for diagnostics.</summary>
+        public float Channel;
+    }
+
+    /// <summary>Which erosion model a planet uses (archived with it: an older world never changes model silently).</summary>
+    public enum ErosionModel
+    {
+        /// <summary>V0.2.0G.2A: the stage with zero displacement.</summary>
+        None = 0,
+        /// <summary>V0.2.0G.2B: drainage-guided fluvial incision.</summary>
+        Fluvial = 1,
     }
 
     /// <summary>
@@ -20,13 +31,14 @@ namespace Planetwalker.Generation
     /// </summary>
     public sealed class ErosionContext
     {
-        public ErosionContext(PlanetScale scale, int seed, float seaLevel, float strength, RegionalLandforms landforms)
+        public ErosionContext(PlanetScale scale, int seed, float seaLevel, float strength, RegionalLandforms landforms, ErosionModel model = ErosionModel.None)
         {
             long start = Stopwatch.GetTimestamp();
             Scale = scale;
             Seed = seed;
             SeaLevel = seaLevel;
             Strength = strength;
+            Model = model;
             Landforms = landforms;
             Valleys = landforms?.Valleys;
             Hydrology = Valleys?.Hydrology;
@@ -37,8 +49,11 @@ namespace Planetwalker.Generation
         public int Seed { get; }
         public float SeaLevel { get; }
 
-        /// <summary>User strength (0 = the stage is not constructed; up to 2). Scales nothing yet: the displacement is zero.</summary>
+        /// <summary>User strength (0 = the stage is not constructed; up to 2): the incision depth scales linearly with it.</summary>
         public float Strength { get; }
+
+        /// <summary>The erosion model (V0.2.0G.2B: fluvial incision; None: zero displacement, the V0.2.0G.2A stage).</summary>
+        public ErosionModel Model { get; }
 
         /// <summary>The regional landforms the erosion acts on (may be null: no landforms).</summary>
         public RegionalLandforms Landforms { get; }
@@ -76,6 +91,23 @@ namespace Planetwalker.Generation
 
         public ErosionContext Context { get; }
 
+        // Fluvial incision bounds (V0.2.0G.2B): never below this share of the height above the sea (the valley carve
+        // already takes up to 45 %: a floor keeps at least 20 % of its height), faded within the first 2 km above the sea
+        // (the coastline of e0 is kept exactly), inside the mountain ranges only (the landforms' valley region), not on
+        // plateaus.
+        const float MaxHeightShare = 0.35f;
+        const float FadeMeters = 2000f;
+
+        /// <summary>Displacement (fraction of the radius) a sample spacing cannot resolve: the incision narrower than it.</summary>
+        public float UnresolvedAmplitude(float spacing)
+        {
+            if (Context.Model == ErosionModel.None || Context.Valleys == null)
+            {
+                return 0f;
+            }
+            return (float)(Context.Valleys.UnresolvedIncisionMeters(spacing) * Math.Min(Context.Strength, 2f) / Context.Scale.RadiusMeters);
+        }
+
         /// <summary>
         /// The erosion at a direction. <paramref name="precise"/> is the planet-space direction (double), <paramref name="direction"/>
         /// its float rounding, <paramref name="context"/> the planetary terrain at that direction, <paramref name="landforms"/>
@@ -83,8 +115,40 @@ namespace Planetwalker.Generation
         /// </summary>
         public void Evaluate(Vector3d precise, Vector3 direction, in TerrainBaseSample context, in LandformSample landforms, float spacing, out ErosionSample sample)
         {
-            // V0.2.0G.2A: the foundation only. Every input is in place; the displacement is zero by contract.
             sample = default;
+            ErosionContext c = Context;
+            if (c.Model == ErosionModel.None || c.Valleys == null)
+            {
+                return; // V0.2.0G.2A stage: zero by contract
+            }
+            // The valley region of the landforms (0 outside the ranges), not on plateau blocks (exactly 0 from 80 % plateau).
+            float region = landforms.Valley * (1f - SmoothStep(0.3f, 0.8f, landforms.Plateau));
+            if (region <= 0f)
+            {
+                return;
+            }
+            double radius = c.Scale.RadiusMeters;
+            double heightMeters = (context.Elevation - c.SeaLevel + landforms.Displacement) * radius;
+            if (heightMeters <= 0.0)
+            {
+                return;
+            }
+            float incision = c.Valleys.Incision(precise, spacing, out float channel);
+            if (incision <= 0f)
+            {
+                return;
+            }
+            float fade = SmoothStep(0f, FadeMeters, (float)heightMeters);
+            incision *= c.Strength * region * fade;
+            incision = Mathf.Min(incision, (float)heightMeters * MaxHeightShare);
+            sample.Displacement = (float)(-incision / radius);
+            sample.Channel = channel * region;
+        }
+
+        static float SmoothStep(float edge0, float edge1, float x)
+        {
+            float t = Mathf.Clamp01((x - edge0) / (edge1 - edge0));
+            return t * t * (3f - 2f * t);
         }
     }
 }

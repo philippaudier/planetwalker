@@ -341,7 +341,9 @@ namespace Planetwalker.Generation
         public float UnresolvedAmplitude(float spacing)
         {
             float sum = Profile.UnresolvedAmplitude(spacing);
-            return Landforms != null ? sum + Landforms.UnresolvedValleyDepth(spacing) : sum;
+            if (Landforms != null) sum += Landforms.UnresolvedValleyDepth(spacing);
+            if (Erosion != null) sum += Erosion.UnresolvedAmplitude(spacing); // V0.2.0G.2B: incision narrower than the spacing
+            return sum;
         }
 
         /// <summary>
@@ -349,6 +351,9 @@ namespace Planetwalker.Generation
         /// the local and micro bands, about -1 (rugged) .. 1 (smooth, eroded). The very value <see cref="Evaluate"/> uses.
         /// </summary>
         public float Character(Vector3 direction) => PlanetNoise.Fractal(direction * CharacterFrequency, characterSeed, CharacterOctaves);
+
+        /// <summary>The same terrain character field for a seed, without an instance (the erosion's regional erodibility reads it at build time).</summary>
+        public static float CharacterField(Vector3 direction, int seed) => PlanetNoise.Fractal(direction * CharacterFrequency, PlanetNoise.DeriveSeed(seed, CharacterStream), CharacterOctaves);
 
         /// <summary>Total detail (fraction of the radius) at a direction, band limited to a sample spacing (0 = full).</summary>
         public float Evaluate(Vector3 direction, in TerrainBaseSample context, float spacing)
@@ -439,8 +444,12 @@ namespace Planetwalker.Generation
                 return;
             }
 
-            // Ridges stretched along the range direction inside ranges (the planetary ridges' own trick).
-            Vector3d q = precise + new Vector3d(context.Anisotropy) * m;
+            // Ridges stretched along the range direction inside the range cores (the planetary ridges' own trick, and
+            // exactly where e0 applies it). V0.2.0G.2B.1: weighted by the core envelope, not the influence: the stretch
+            // vector is a weighted mean over the ranges whose direction swings where their weights vanish (foothills and
+            // provinces, influence ~0.2 with core 0); a swing of 0.05 rad shifts the regional noise domain by 300 km in
+            // a few meters: 180 m steps, the near-vertical walls the mesh drew as teeth.
+            Vector3d q = precise + new Vector3d(context.Anisotropy) * core;
             float ridgeMixRegional = m, ridgeMixLocal = 0.7f * m, ridgeMixMicro = 0.3f * core;
             float plainRegional = 0f, ridgedRegional = 0f, plainLocal = 0f, ridgedLocal = 0f, plainMicro = 0f, ridgedMicro = 0f;
             float ridgeWeight = 1f;

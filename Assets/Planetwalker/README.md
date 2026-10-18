@@ -642,6 +642,37 @@ archives before G.2A load with 0, so a future erosion never reshapes an older wo
 DETAIL): neutral gray everywhere (zero), dark where the stage is off; the status line reports the stage and its context
 construction time. Report: `Docs/Reports/V0.2.0G.2A_Validation.md`.
 
+**Fluvial incision (V0.2.0G.2B)** — the first visible erosion: the drainage network's channels cut an inner valley
+into the landform-shaped terrain. Per channel node (built once with the network): `I = K * a^0.5 * S / (S + 0.03)`,
+`a` the drained area normalized in octaves (2 to 128 grid cells), `S` the channel gradient on the filled surface,
+`K` the regional erodibility (0.75-1.25 from the terrain character field: mature, smooth regions erode more), scaled
+to 1.5 km; then regularized downstream (a trunk is at least 85 % as deep as a tributary joining it: no uphill step
+at a confluence). Per sample: the two nearest channels (one hash cell, `ValleyNetwork.Incision`), each a bell
+`(1 - x^2)^2` over an incision half width of 1.2-5 km (broader with the drained area, 40 % narrower where steep),
+combined by a soft maximum; inside the ranges only (the landforms' valley region), never on plateau blocks, at most
+35 % of the height above the sea, faded over the first 2 km above it: the coastline and the land / sea split are kept
+exactly; band-limited like the valleys (absent from the legacy and analysis grids: hydrology, lakes, rivers and climate
+unchanged). `ValleyNetwork.Nearest` answers the corridor query (distance, position along the channel, flow direction,
+drained cells, widths, reference elevation, gradient, incision). **Erosion model** (`erosionModel`, archived): 0 = none
+(the V0.2.0G.2A stage, zero displacement), 1 = fluvial; a world saved before G.2B, including a G.2A world, loads with
+0 and keeps its terrain; new worlds use 1. *Erosion* slider (strength 0-2, linear), *Erosion Shift (1.5 km)* view
+(blue = incised, linear, neutral gray = none). Report: `Docs/Reports/V0.2.0G.2B_Validation.md`.
+
+**V0.2.0G.2B.1 — morphology and headwater continuity.** Play Mode review of G.2B found near-vertical walls drawn as
+teeth, trenches starting at full depth and rivers appearing from nowhere. Measured causes and fixes: (1) the detail
+bands' ridge stretch `q = p + anisotropy * influence` used a range-weighted mean vector whose direction swings where the
+range weights vanish (foothills, influence ~0.2): a 0.05 rad swing shifts the regional noise domain by 300 km within
+meters (183 m steps per 10 m, 88-degree walls, present since V0.2.0C and exposed by the gorges); the stretch is now
+weighted by the core envelope, as e0 itself applies it (1.3 m per 10 m there; worst cross-section slope 25 -> 6, a
+continuous ramp). (2) The incision activates smoothly with the drained area (nothing at a 2-cell head, full at ~9
+cells), a head curve starts at zero depth (valley and incision), and a channel is never deeper than half its incision
+half width (walls under ~38 degrees): headwater incision p50 352 -> 45 m, worst change along a head 121 -> 45 m per
+250 m. (3) The valley asymmetry (skew) now blends through zero around segment ends (a sign flip beyond an end put a
+width step along the axis extension). (4) Rivers: the ribbons sit on the LEGACY face mesh (resolution 64), which the
+incision never changes (band limit), so they float above gorges (up to 5 km) or run buried: diagnosed, not fixed here
+(V0.2.0G.2D aligns rivers and valleys on the shared network). Tests `IncisionContinuityTests` (headwaters, terminal
+walls, cross slopes and band continuity, whole-path descent).
+
 ## Architecture
 
 | Layer | Files | Role |
@@ -715,6 +746,12 @@ Elevation convention: dimensionless, fraction of the reference radius
 rendering scale.
 
 ## Changelog
+
+### V0.2.0G.2B — Drainage-Guided Fluvial Incision
+- Visible fluvial incision along the valley drainage network (stream-power-like per node, downstream-regularized,
+  bell profiles, soft-max confluences), inside the ranges only, coast-, lake-, plateau- and plain-safe; `erosionModel`
+  archived (G.2A and older worlds keep their terrain); *Erosion* slider; channel corridor query; tests along whole
+  drainage paths and at confluences.
 
 ### V0.2.0G.2A — Erosion Foundation
 - Erosion stage in the canonical terrain evaluation (after the regional landforms, before the detail bands), its context
