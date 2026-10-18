@@ -39,6 +39,9 @@ namespace Planetwalker.Persistence
         /// <summary>The terrain member whose absence marks an archive written before V0.2.0G.1.</summary>
         const string RegionalLandformsField = "terrain.regionalLandforms";
 
+        /// <summary>The terrain member whose absence marks an archive written before V0.2.0G.2A.</summary>
+        const string ErosionField = "terrain.erosionStrength";
+
         /// <summary>
         /// Fields every archive before V0.2.0C lacks and whose defaults are a documented compatibility rule (the
         /// terrain is bit-identical with them): not worth a "defaults used" warning when a world is loaded.
@@ -46,7 +49,7 @@ namespace Planetwalker.Persistence
         public static readonly string[] CompatibilityDefaultFields =
         {
             "terrain.radiusKilometers", SurfaceDetailField, "terrain.regionalDetail", "terrain.localDetail", "terrain.microDetail",
-            RegionalLandformsField,
+            RegionalLandformsField, ErosionField,
         };
 
         public static bool IsCompatibilityDefault(string field) => System.Array.IndexOf(CompatibilityDefaultFields, field) >= 0;
@@ -354,6 +357,10 @@ namespace Planetwalker.Persistence
                 else if (field == RegionalLandformsField)
                 {
                     configuration.Terrain.regionalLandforms = 0f;
+                }
+                else if (field == ErosionField)
+                {
+                    configuration.Terrain.erosionStrength = 0f; // V0.2.0G.2A: zero displacement either way; a future erosion never reshapes an older world
                 }
             }
         }

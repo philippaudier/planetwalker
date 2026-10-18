@@ -182,7 +182,11 @@ namespace Planetwalker.Generation
                             d.seaLevel, scale.RadiusMeters, d.seed, RegionalLandforms.MaxValleyDepthMeters); // depths scaled by the strength in the landforms
                         landforms = new RegionalLandforms(scale, d.seed, d.regionalLandforms, d.seaLevel, valleys);
                     }
-                    surfaceDetail = new TerrainDetail(profile, new TerrainReliefField(GetBaseElevation), d.seed, d.seaLevel, landforms);
+                    // Erosion stage (V0.2.0G.2A): the foundation, zero displacement; strength 0 builds none.
+                    ErosionSampler erosion = d.erosionStrength > 0f
+                        ? new ErosionSampler(new ErosionContext(PlanetScale.Of(d), d.seed, d.seaLevel, d.erosionStrength, landforms))
+                        : null;
+                    surfaceDetail = new TerrainDetail(profile, new TerrainReliefField(GetBaseElevation), d.seed, d.seaLevel, landforms, erosion);
                 }
             }
         }

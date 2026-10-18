@@ -201,7 +201,11 @@ namespace Planetwalker.UI
                 + (detail.Landforms != null
                     ? string.Format(CultureInfo.InvariantCulture, "\nLandforms {0:0.00}x: valleys to {1}, plateaus, coastal plains",
                         detail.Landforms.Strength, PlanetScale.FormatDistance(scale.ElevationToMeters(detail.Landforms.MaxValleyDepth)))
-                    : "\nLandforms off (V0.2.0F terrain)");
+                    : "\nLandforms off (V0.2.0F terrain)")
+                + (detail.Erosion != null
+                    ? string.Format(CultureInfo.InvariantCulture, "\nErosion {0:0.00}x: foundation (G.2A), displacement 0 (context {1:0.000} ms)",
+                        detail.Erosion.Context.Strength, detail.Erosion.Context.BuildMilliseconds)
+                    : "\nErosion stage off");
         }
     }
 }

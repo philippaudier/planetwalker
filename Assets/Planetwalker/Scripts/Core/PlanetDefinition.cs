@@ -160,6 +160,15 @@ namespace Planetwalker.Core
         [Range(0f, MaxSurfaceDetailLevel)]
         public float regionalLandforms = 1f;
 
+        // Erosion (V0.2.0G.2A: the foundation; the displacement is zero until V0.2.0G.2B). Archives older than
+        // V0.2.0G.2A have no such field: the serializer sets 0 for them, so a future erosion never silently reshapes
+        // an older world; new worlds start with 1.
+
+        [Tooltip("Erosion stage of the terrain (V0.2.0G.2A foundation: no visible erosion yet, the displacement is zero "
+            + "whatever this value). 0 = stage off. Range [0, 2].")]
+        [Range(0f, MaxSurfaceDetailLevel)]
+        public float erosionStrength = 1f;
+
         public PlanetDefinition Clone()
         {
             return (PlanetDefinition)MemberwiseClone();
@@ -192,7 +201,8 @@ namespace Planetwalker.Core
                 && regionalDetail == other.regionalDetail
                 && localDetail == other.localDetail
                 && microDetail == other.microDetail
-                && regionalLandforms == other.regionalLandforms;
+                && regionalLandforms == other.regionalLandforms
+                && erosionStrength == other.erosionStrength;
         }
 
         /// <summary>True when the surface detail settings (V0.2.0C) are identical.</summary>
@@ -200,7 +210,7 @@ namespace Planetwalker.Core
         {
             return other != null && surfaceDetail == other.surfaceDetail && regionalDetail == other.regionalDetail
                 && localDetail == other.localDetail && microDetail == other.microDetail && radiusKilometers == other.radiusKilometers
-                && regionalLandforms == other.regionalLandforms;
+                && regionalLandforms == other.regionalLandforms && erosionStrength == other.erosionStrength;
         }
 
         /// <summary>Clamps every parameter into its documented range.</summary>
@@ -226,6 +236,7 @@ namespace Planetwalker.Core
             localDetail = Mathf.Clamp(localDetail, 0f, MaxSurfaceDetailLevel);
             microDetail = Mathf.Clamp(microDetail, 0f, MaxSurfaceDetailLevel);
             regionalLandforms = Mathf.Clamp(regionalLandforms, 0f, MaxSurfaceDetailLevel);
+            erosionStrength = Mathf.Clamp(erosionStrength, 0f, MaxSurfaceDetailLevel);
         }
     }
 }

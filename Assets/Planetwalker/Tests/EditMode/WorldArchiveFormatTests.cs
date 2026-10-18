@@ -753,7 +753,7 @@ namespace Planetwalker.Tests
             Assert.GreaterOrEqual(ruggedness, 0);
             CollectionAssert.AreEqual(new[] { "radiusKilometers", "surfaceDetail", "regionalDetail", "localDetail", "microDetail" },
                 members.Skip(ruggedness + 1).Take(5), "Declaration order of the V0.2.0C fields");
-            CollectionAssert.AreEqual(new[] { "regionalLandforms" }, members.Skip(ruggedness + 6), "Then the V0.2.0G.1 field, last");
+            CollectionAssert.AreEqual(new[] { "regionalLandforms", "erosionStrength" }, members.Skip(ruggedness + 6), "Then the V0.2.0G.1 and V0.2.0G.2A fields, last");
             WorldArchiveTestUtil.Report(terrain.ToJson());
         }
     }

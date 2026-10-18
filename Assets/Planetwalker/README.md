@@ -631,6 +631,17 @@ region, bright corridors, green plateau, blue coastal plain), *Landform Shift* (
 Before / after evidence (same seed, directions, headings and clearances): `Docs/Captures/V0.2.0G.1/`, report
 `Docs/Reports/V0.2.0G.1_Validation.md`.
 
+**Erosion foundation (V0.2.0G.2A, `Generation/PlanetErosion`)** — the erosion stage of the canonical terrain:
+`e = e0 + regional landforms + erosion + detail bands`, evaluated once per sample in `TerrainDetail.Evaluate` right after
+the landforms (the bands then read the eroded height). `ErosionContext` (immutable, shared: scale, seed, sea level, the
+landforms, the valley drainage network and its hydrology, by reference) and `ErosionSampler` (a pure function of the
+planet-space direction and the upstream samples: no camera, patch, LOD, floating-origin or thread input). **No visible
+erosion yet: the displacement is exactly zero** in V0.2.0G.2A; fluvial incision, hillslope relaxation and deposition
+come with V0.2.0G.2B and later, on this data flow. Setting `erosionStrength` (0-2, default 1, 0 = stage off; archived;
+archives before G.2A load with 0, so a future erosion never reshapes an older world). View *Erosion Shift* (SURFACE
+DETAIL): neutral gray everywhere (zero), dark where the stage is off; the status line reports the stage and its context
+construction time. Report: `Docs/Reports/V0.2.0G.2A_Validation.md`.
+
 ## Architecture
 
 | Layer | Files | Role |
@@ -697,12 +708,19 @@ Before / after evidence (same seed, directions, headings and clearances): `Docs/
 | Presentation | `UI/PlanetGenerationPanel.SurfaceDetail` | SURFACE DETAIL section |
 | Generation | `Generation/RegionalLandforms` | Regional landforms (V0.2.0G.1): mountain valleys, plateaus, coastal plains; weights, shaping, band limits |
 | Generation | `Generation/ValleyNetwork` | Valley drainage network of the ranges (V0.2.0G.1.1): e0 hydrology, smoothed open paths, segment hash, carve lookup |
+| Generation | `Generation/PlanetErosion` | Erosion foundation (V0.2.0G.2A): `ErosionContext`, `ErosionSampler` (zero displacement) |
 
 Elevation convention: dimensionless, fraction of the reference radius
 (surface point = `dir * radius * (1 + elevation)`), so terrain shape is independent of the
 rendering scale.
 
 ## Changelog
+
+### V0.2.0G.2A — Erosion Foundation
+- Erosion stage in the canonical terrain evaluation (after the regional landforms, before the detail bands), its context
+  referencing the drainage network and hydrology; displacement exactly zero (no visible erosion); `erosionStrength`
+  setting archived (older archives load with it off); *Erosion Shift* view; tests for zero displacement, baseline
+  identity, determinism, LOD and floating-origin independence, archive compatibility and cost.
 
 ### V0.2.0G.1.1 — Valley Morphology Correction
 - Mountain valleys follow the ranges' drainage network (open, converging, widening downstream) instead of the zero lines

@@ -52,6 +52,8 @@ namespace Planetwalker.Rendering
         static readonly Color Clay = new Color(0.62f, 0.60f, 0.57f);
         static readonly Color NoLandform = new Color(0.22f, 0.22f, 0.23f);
         const float DisplacementScaleMeters = 2500f;
+        const float ErosionScaleMeters = 500f;
+        static readonly Color ErosionNeutral = new Color(0.45f, 0.45f, 0.46f);
 
         /// <summary>Regional landform views (V0.2.0G.1).</summary>
         static Color Landform(PlanetHeightGenerator height, PlanetDebugView view, in TerrainDetailSample sample)
@@ -59,6 +61,16 @@ namespace Planetwalker.Rendering
             if (view == PlanetDebugView.LandformRelief)
             {
                 return Clay;
+            }
+            if (view == PlanetDebugView.ErosionDisplacement)
+            {
+                if (height.SurfaceDetail.Erosion == null)
+                {
+                    return NoLandform; // stage off
+                }
+                float meters = (float)(sample.Erosion * height.SurfaceDetail.Erosion.Context.Scale.RadiusMeters);
+                float t = Mathf.Clamp(meters / ErosionScaleMeters, -1f, 1f);
+                return Color.Lerp(ErosionNeutral, t < 0f ? Down : Up, Mathf.Sqrt(Mathf.Abs(t)));
             }
             if (height.SurfaceDetail.Landforms == null)
             {

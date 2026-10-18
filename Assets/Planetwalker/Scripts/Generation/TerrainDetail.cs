@@ -30,7 +30,9 @@ namespace Planetwalker.Generation
         public float Landform;
         /// <summary>The landform influence weights and shape terms at the direction (V0.2.0G.1).</summary>
         public LandformSample Landforms;
-        public float Total => Landform + Regional + Local + Micro;
+        /// <summary>Erosion displacement (V0.2.0G.2A: zero by contract; 0 without the stage).</summary>
+        public float Erosion;
+        public float Total => Landform + Erosion + Regional + Local + Micro;
     }
 
     /// <summary>The three detail bands of V0.2.0C, by physical wavelength.</summary>
@@ -302,10 +304,11 @@ namespace Planetwalker.Generation
         readonly int[] octaveSeeds;
         readonly float[] coastBand = new float[3];
 
-        public TerrainDetail(TerrainDetailProfile profile, TerrainReliefField relief, int seed, float seaLevel, RegionalLandforms landforms = null)
+        public TerrainDetail(TerrainDetailProfile profile, TerrainReliefField relief, int seed, float seaLevel, RegionalLandforms landforms = null, ErosionSampler erosion = null)
         {
             Profile = profile;
             Landforms = landforms;
+            Erosion = erosion;
             Relief = relief;
             SeaLevel = seaLevel;
             characterSeed = PlanetNoise.DeriveSeed(seed, CharacterStream);
@@ -326,6 +329,9 @@ namespace Planetwalker.Generation
 
         /// <summary>Regional landforms (V0.2.0G.1), or null when off (the detail is then exactly V0.2.0F.3's).</summary>
         public RegionalLandforms Landforms { get; }
+
+        /// <summary>Erosion stage (V0.2.0G.2A), or null when off. Its displacement is zero in V0.2.0G.2A.</summary>
+        public ErosionSampler Erosion { get; }
 
         /// <summary>
         /// Displacement a sample spacing (radians) cannot resolve, all layers (fraction of the radius): the octaves'
@@ -395,6 +401,13 @@ namespace Planetwalker.Generation
                 h += sample.Landform;
                 calm = sample.Landforms.Calm;
                 edge = sample.Landforms.Edge;
+            }
+            // Erosion (V0.2.0G.2A) on the landform-shaped terrain, before the fine bands (which then read the eroded height).
+            if (Erosion != null)
+            {
+                Erosion.Evaluate(precise, direction, context, sample.Landforms, landformSpacing, out ErosionSample erosion);
+                sample.Erosion = erosion.Displacement;
+                h += sample.Erosion;
             }
             if (Profile.OctaveCount == 0)
             {

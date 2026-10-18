@@ -1,0 +1,14 @@
+Config G2A seed 1337 mountain_P1: erosion stage on (strength 1, context 0,000 ms)
+Config G2A seed 1337 valley_P3: erosion stage on (strength 1, context 0,000 ms)
+Config G2A seed 310929 plateau: erosion stage on (strength 1, context 0,000 ms)
+Config G2A seed 310929 plain: erosion stage on (strength 1, context 0,000 ms)
+Config G11 seed 1337 mountain_P1: erosion stage off
+Config G11 seed 1337 valley_P3: erosion stage off
+Config G11 seed 310929 plateau: erosion stage off
+Config G11 seed 310929 plain: erosion stage off
+Image difference G.2A vs G.1.1 (mean abs, 0-255), mountain_P1: 20km/pbr 0.000 20km/clay 0.000 2km/pbr 0.000 2km/clay 0.000 200m/pbr 0.000 200m/clay 0.000 20m/pbr 0.000 20m/clay 0.000
+Image difference G.2A vs G.1.1 (mean abs, 0-255), valley_P3: 20km/pbr 0.000 20km/clay 0.000 2km/pbr 0.000 2km/clay 0.000 200m/pbr 0.000 200m/clay 0.000 20m/pbr 0.000 20m/clay 0.000
+Image difference G.2A vs G.1.1 (mean abs, 0-255), plateau: 20km/pbr 0.000 20km/clay 0.000 2km/pbr 0.000 2km/clay 0.000 200m/pbr 0.000 200m/clay 0.000 20m/pbr 0.000 20m/clay 0.000
+Image difference G.2A vs G.1.1 (mean abs, 0-255), plain: 20km/pbr 0.000 20km/clay 0.000 2km/pbr 0.000 2km/clay 0.000 200m/pbr 0.000 200m/clay 0.000 20m/pbr 0.000 20m/clay 0.000
+Perf erosion stage off: patch build 3.578 ms/patch (16 mountain patches x 10), planet construction 355 ms
+Perf erosion stage on: patch build 3.558 ms/patch (16 mountain patches x 10), planet construction 354 ms

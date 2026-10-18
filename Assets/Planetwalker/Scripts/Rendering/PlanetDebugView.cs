@@ -126,6 +126,12 @@ namespace Planetwalker.Rendering
         /// lighting alone (no material, biome or detail coloring).
         /// </summary>
         LandformRelief,
+
+        /// <summary>
+        /// Erosion displacement (V0.2.0G.2A): blue lowered, red raised (+-500 m), neutral gray where zero; dark where the
+        /// stage is off. Uniformly neutral in V0.2.0G.2A, whose displacement is zero by contract.
+        /// </summary>
+        ErosionDisplacement,
     }
 
     public static class PlanetDebugViews
@@ -151,7 +157,7 @@ namespace Planetwalker.Rendering
         public static bool IsLandform(PlanetDebugView view)
         {
             return view == PlanetDebugView.LandformInfluence || view == PlanetDebugView.LandformDisplacement
-                || view == PlanetDebugView.LandformRelief;
+                || view == PlanetDebugView.LandformRelief || view == PlanetDebugView.ErosionDisplacement;
         }
 
         /// <summary>Views that need a hydrology analysis (hydrology, river and lake views).</summary>
