@@ -1,0 +1,38 @@
+Showcase valley: direction (-0.440954, 0.380725, 0.812778), facing (0.897148, 0.160570, 0.411512); weights valley 1.00 corridor 0.95 plateau 0.00 plain 0.00; landform shift -3875 m; height above sea with landforms 105413 m
+Showcase plateau: direction (0.131565, 0.508858, -0.850737), facing (-0.894736, 0.430425, 0.119085); weights valley 0.00 corridor 0.00 plateau 0.77 plain 0.00; landform shift 3689 m; height above sea with landforms 17576 m
+Showcase plain: direction (-0.195978, 0.181058, 0.963748), facing (0.727489, -0.632164, 0.266699); weights valley 0.00 corridor 0.00 plateau 0.00 plain 1.00; landform shift 0 m; height above sea with landforms 92 m
+valley: landforms 0; camera 20km back 30000 m, clearance 20000.0 m, pitch -28; terrain at the camera 107589 m above sea
+valley: landforms 0; camera 2km back 6000 m, clearance 2000.0 m, pitch -12; terrain at the camera 108604 m above sea
+valley: landforms 0; camera 200m back 1500 m, clearance 200.0 m, pitch -5; terrain at the camera 109150 m above sea
+valley: landforms 0; camera 20m back 300 m, clearance 20.0 m, pitch -2; terrain at the camera 109806 m above sea
+valley: landforms 0; camera eye back 40 m, clearance 3.0 m, pitch 0; terrain at the camera 110083 m above sea
+plateau: landforms 0; camera 20km back 30000 m, clearance 20000.0 m, pitch -28; terrain at the camera 6124 m above sea
+plateau: landforms 0; camera 2km back 6000 m, clearance 2000.0 m, pitch -12; terrain at the camera 12003 m above sea
+plateau: landforms 0; camera 200m back 1500 m, clearance 200.0 m, pitch -5; terrain at the camera 13529 m above sea
+plateau: landforms 0; camera 20m back 300 m, clearance 20.0 m, pitch -2; terrain at the camera 13899 m above sea
+plateau: landforms 0; camera eye back 40 m, clearance 1.7 m, pitch 0; terrain at the camera 13907 m above sea
+plain: landforms 0; camera 20km back 30000 m, clearance 20000.0 m, pitch -28; terrain at the camera 20404 m above sea
+plain: landforms 0; camera 2km back 6000 m, clearance 2000.0 m, pitch -12; terrain at the camera 3050 m above sea
+plain: landforms 0; camera 200m back 1500 m, clearance 200.0 m, pitch -5; terrain at the camera 981 m above sea
+plain: landforms 0; camera 20m back 300 m, clearance 20.0 m, pitch -2; terrain at the camera 274 m above sea
+plain: landforms 0; camera eye back 40 m, clearance 1.8 m, pitch 0; terrain at the camera 117 m above sea
+valley: landforms 1; camera 20km back 30000 m, clearance 20000.0 m, pitch -28; terrain at the camera 105836 m above sea
+valley: landforms 1; camera 2km back 6000 m, clearance 2000.0 m, pitch -12; terrain at the camera 104574 m above sea
+valley: landforms 1; camera 200m back 1500 m, clearance 200.0 m, pitch -5; terrain at the camera 105057 m above sea
+valley: landforms 1; camera 20m back 300 m, clearance 20.0 m, pitch -2; terrain at the camera 105360 m above sea
+valley: landforms 1; camera eye back 40 m, clearance 2.3 m, pitch 0; terrain at the camera 105455 m above sea
+plateau: landforms 1; camera 20km back 30000 m, clearance 20000.0 m, pitch -28; terrain at the camera 6124 m above sea
+plateau: landforms 1; camera 2km back 6000 m, clearance 2000.0 m, pitch -12; terrain at the camera 14508 m above sea
+plateau: landforms 1; camera 200m back 1500 m, clearance 200.0 m, pitch -5; terrain at the camera 16832 m above sea
+plateau: landforms 1; camera 20m back 300 m, clearance 20.0 m, pitch -2; terrain at the camera 17510 m above sea
+plateau: landforms 1; camera eye back 40 m, clearance 1.7 m, pitch 0; terrain at the camera 17565 m above sea
+plain: landforms 1; camera 20km back 30000 m, clearance 20000.0 m, pitch -28; terrain at the camera 19598 m above sea
+plain: landforms 1; camera 2km back 6000 m, clearance 2000.0 m, pitch -12; terrain at the camera 599 m above sea
+plain: landforms 1; camera 200m back 1500 m, clearance 200.0 m, pitch -5; terrain at the camera 241 m above sea
+plain: landforms 1; camera 20m back 300 m, clearance 20.0 m, pitch -2; terrain at the camera 162 m above sea
+plain: landforms 1; camera eye back 40 m, clearance 1.8 m, pitch 0; terrain at the camera 117 m above sea
+Clay image change before -> after, valley: 20km 28.4 2km 29.7 200m 36.1 20m 21.4 eye 28.1
+Clay image change before -> after, plateau: 20km 25.9 2km 29.1 200m 28.6 20m 23.6 eye 18.8
+Clay image change before -> after, plain: 20km 4.9 2km 28.7 200m 32.1 20m 30.2 eye 0.1
+Perf landforms 0: patch build 4.829 ms/patch (resolution 16, 24 patches x 5), canonical elevation 45.66 us/sample (200k, sink -1698.8)
+Perf landforms 1: patch build 5.372 ms/patch (resolution 16, 24 patches x 5), canonical elevation 45.86 us/sample (200k, sink -1698.0)

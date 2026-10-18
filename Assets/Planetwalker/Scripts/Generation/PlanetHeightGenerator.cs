@@ -172,7 +172,17 @@ namespace Planetwalker.Generation
                 var profile = new TerrainDetailProfile(PlanetScale.Of(d), d.detailFrequency, d.detailStrength, d.regionalDetail, d.localDetail, d.microDetail);
                 if (profile.OctaveCount > 0)
                 {
-                    surfaceDetail = new TerrainDetail(profile, new TerrainReliefField(GetBaseElevation), d.seed, d.seaLevel);
+                    // Regional landforms (V0.2.0G.1): strength 0 builds none (the terrain is then exactly V0.2.0F.3's).
+                    RegionalLandforms landforms = null;
+                    if (d.regionalLandforms > 0f)
+                    {
+                        // The ranges' drainage network (V0.2.0G.1.1), from e0 alone: built once, then a lookup.
+                        PlanetScale scale = PlanetScale.Of(d);
+                        var valleys = new ValleyNetwork(dir => { SampleBase(dir, out TerrainBaseSample s); return s; },
+                            d.seaLevel, scale.RadiusMeters, d.seed, RegionalLandforms.MaxValleyDepthMeters); // depths scaled by the strength in the landforms
+                        landforms = new RegionalLandforms(scale, d.seed, d.regionalLandforms, d.seaLevel, valleys);
+                    }
+                    surfaceDetail = new TerrainDetail(profile, new TerrainReliefField(GetBaseElevation), d.seed, d.seaLevel, landforms);
                 }
             }
         }
@@ -328,6 +338,7 @@ namespace Planetwalker.Generation
                 Core = s00.Core * w00 + s10.Core * w10 + s01.Core * w01 + s11.Core * w11,
                 Influence = s00.Influence * w00 + s10.Influence * w10 + s01.Influence * w01 + s11.Influence * w11,
                 Anisotropy = s00.Anisotropy * w00 + s10.Anisotropy * w10 + s01.Anisotropy * w01 + s11.Anisotropy * w11,
+                Undulation = s00.Undulation * w00 + s10.Undulation * w10 + s01.Undulation * w01 + s11.Undulation * w11,
             };
             // The blend runs in double: in float its 5 p1 / 4 p2 terms would round by ~10 cm at Earth scale,
             // re-introducing the very grain the lattice removes. The samples stay the float lattice values.
@@ -391,6 +402,22 @@ namespace Planetwalker.Generation
             return length > 1e-24 ? (normal / length).ToVector3() : dir;
         }
 
+        /// <summary>
+        /// Elevation for relief bounds (V0.2.0G.1): the detail octaves band-limited to the sample spacing (radians), the
+        /// regional landforms complete. Landforms narrower than a coarse spacing (valleys, plateau scarps) fade in
+        /// band-limited samples, yet the patches sample them: bounds must contain them without widening every margin.
+        /// </summary>
+        public float GetBoundsElevation(Vector3 normalizedDirection, float sampleSpacing)
+        {
+            if (surfaceDetail == null)
+            {
+                return GetBaseElevation(normalizedDirection);
+            }
+            float e = SampleBase(normalizedDirection, out TerrainBaseSample context);
+            surfaceDetail.Evaluate(new Vector3d(normalizedDirection), normalizedDirection, context, sampleSpacing, 0f, out TerrainDetailSample sample);
+            return e + sample.Total;
+        }
+
         /// <summary>Base elevation and the detail of each band at a direction (diagnostics; zero bands without detail).</summary>
         public float SampleLayers(Vector3 normalizedDirection, out TerrainDetailSample detail)
         {
@@ -448,7 +475,9 @@ namespace Planetwalker.Generation
             if (detailStrength > 0f)
             {
                 float detail = PlanetNoise.Fractal(dir * detailFrequency, detailSeed, DetailOctaves);
-                elevation += detailStrength * detail * Mathf.Lerp(0.5f, 1f, landMask) * (1f + MountainDetailBoost * mountainCore);
+                float undulation = detailStrength * detail * Mathf.Lerp(0.5f, 1f, landMask) * (1f + MountainDetailBoost * mountainCore);
+                elevation += undulation;
+                context.Undulation = undulation;
             }
 
             context.Elevation = elevation;

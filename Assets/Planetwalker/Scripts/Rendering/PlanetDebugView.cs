@@ -111,6 +111,21 @@ namespace Planetwalker.Rendering
 
         /// <summary>Surface detail: the three bands combined.</summary>
         SurfaceDetailCombined,
+
+        /// <summary>
+        /// Regional landforms (V0.2.0G.1): influence weights as colors, mountain valley region red (valley corridors
+        /// brighter), plateau green, coastal plain blue; land without a landform dark gray.
+        /// </summary>
+        LandformInfluence,
+
+        /// <summary>Regional landforms (V0.2.0G.1): their height change, blue lowered, red raised (diverging, +-2.5 km).</summary>
+        LandformDisplacement,
+
+        /// <summary>
+        /// Uniform clay over land (V0.2.0G.1): one flat diagnostic color, so the terrain is read from its shape and
+        /// lighting alone (no material, biome or detail coloring).
+        /// </summary>
+        LandformRelief,
     }
 
     public static class PlanetDebugViews
@@ -119,7 +134,24 @@ namespace Planetwalker.Rendering
         public static bool IsSurfaceDetail(PlanetDebugView view)
         {
             return view == PlanetDebugView.SurfaceDetailRegional || view == PlanetDebugView.SurfaceDetailLocal
-                || view == PlanetDebugView.SurfaceDetailMicro || view == PlanetDebugView.SurfaceDetailCombined;
+                || view == PlanetDebugView.SurfaceDetailMicro || view == PlanetDebugView.SurfaceDetailCombined
+                || IsLandform(view);
+        }
+
+        /// <summary>
+        /// Views drawn with the lit terrain material (the others are unlit): the default view and the landform relief
+        /// clay (V0.2.0G.1), whose uniform color is shaded by the sun so the terrain reads from its shape alone.
+        /// </summary>
+        public static bool IsLit(PlanetDebugView view)
+        {
+            return view == PlanetDebugView.None || view == PlanetDebugView.LandformRelief;
+        }
+
+        /// <summary>The regional landform views (V0.2.0G.1), drawn like the surface detail views.</summary>
+        public static bool IsLandform(PlanetDebugView view)
+        {
+            return view == PlanetDebugView.LandformInfluence || view == PlanetDebugView.LandformDisplacement
+                || view == PlanetDebugView.LandformRelief;
         }
 
         /// <summary>Views that need a hydrology analysis (hydrology, river and lake views).</summary>

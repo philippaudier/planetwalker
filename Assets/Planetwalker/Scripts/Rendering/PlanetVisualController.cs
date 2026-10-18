@@ -921,7 +921,7 @@ namespace Planetwalker.Rendering
         void ApplyViewState()
         {
             // Development views are unlit and show the whole surface, so the ocean is hidden.
-            Material material = debugView == PlanetDebugView.None ? ResolveTerrainMaterial() : ResolveDebugMaterial();
+            Material material = PlanetDebugViews.IsLit(debugView) ? ResolveTerrainMaterial() : ResolveDebugMaterial();
             foreach (MeshRenderer faceRenderer in faceRenderers)
             {
                 if (faceRenderer != null && faceRenderer.sharedMaterial != material)
@@ -929,7 +929,7 @@ namespace Planetwalker.Rendering
                     faceRenderer.sharedMaterial = material;
                 }
             }
-            oceanTransform.gameObject.SetActive(debugView == PlanetDebugView.None);
+            oceanTransform.gameObject.SetActive(PlanetDebugViews.IsLit(debugView));
             renderedDebugView = debugView;
             ApplyOceanAtmosphere();
             renderedRiverThreshold = hydrology.riverNetworkThreshold;

@@ -17,9 +17,13 @@ namespace Planetwalker.UI
         static readonly PlanetDebugView[] SurfaceDetailViews =
         {
             PlanetDebugView.SurfaceDetailCombined, PlanetDebugView.SurfaceDetailRegional, PlanetDebugView.SurfaceDetailLocal,
-            PlanetDebugView.SurfaceDetailMicro,
+            PlanetDebugView.SurfaceDetailMicro, PlanetDebugView.LandformInfluence, PlanetDebugView.LandformDisplacement,
+            PlanetDebugView.LandformRelief,
         };
-        static readonly string[] SurfaceDetailViewNames = { "View: Combined", "View: Regional", "View: Local", "View: Micro" };
+        static readonly string[] SurfaceDetailViewNames =
+        {
+            "View: Combined", "View: Regional", "View: Local", "View: Micro", "View: Landforms", "View: Landform Shift", "View: Relief (clay)",
+        };
 
         [SerializeField] Toggle surfaceDetailToggle;
         [SerializeField] Slider regionalDetailSlider;
@@ -28,6 +32,8 @@ namespace Planetwalker.UI
         [SerializeField] Text localDetailValue;
         [SerializeField] Slider microDetailSlider;
         [SerializeField] Text microDetailValue;
+        [SerializeField] Slider landformSlider;
+        [SerializeField] Text landformValue;
         [SerializeField] Toggle surfaceDetailViewToggle;
         [SerializeField] Button surfaceDetailViewButton;
         [SerializeField] Text surfaceDetailViewLabel;
@@ -38,7 +44,7 @@ namespace Planetwalker.UI
         bool SurfaceDetailLayoutComplete()
         {
             return surfaceDetailToggle != null && regionalDetailSlider != null && localDetailSlider != null && microDetailSlider != null
-                && surfaceDetailViewToggle != null && surfaceDetailViewButton != null && surfaceDetailStatsText != null;
+                && landformSlider != null && surfaceDetailViewToggle != null && surfaceDetailViewButton != null && surfaceDetailStatsText != null;
         }
 
         void BuildSurfaceDetailSection(RectTransform panel, Font font)
@@ -51,9 +57,11 @@ namespace Planetwalker.UI
             regionalDetailSlider = CreateSliderRow(panel, font, "Regional Detail", 0f, PlanetDefinition.MaxSurfaceDetailLevel, false, out regionalDetailValue);
             localDetailSlider = CreateSliderRow(panel, font, "Local Detail", 0f, PlanetDefinition.MaxSurfaceDetailLevel, false, out localDetailValue);
             microDetailSlider = CreateSliderRow(panel, font, "Micro Detail", 0f, PlanetDefinition.MaxSurfaceDetailLevel, false, out microDetailValue);
+            landformSlider = CreateSliderRow(panel, font, "Landforms", 0f, PlanetDefinition.MaxSurfaceDetailLevel, false, out landformValue);
             regionalDetailSlider.SetValueWithoutNotify(1f);
             localDetailSlider.SetValueWithoutNotify(1f);
             microDetailSlider.SetValueWithoutNotify(1f);
+            landformSlider.SetValueWithoutNotify(1f);
             var viewRow = CreateRow(panel, "Surface Detail View Row");
             surfaceDetailViewToggle = CreateToggle(viewRow, font, "Show Detail Layers");
             surfaceDetailViewButton = CreateButton(viewRow, font, SurfaceDetailViewNames[0]);
@@ -70,6 +78,7 @@ namespace Planetwalker.UI
             regionalDetailSlider.onValueChanged.AddListener(OnSliderChanged);
             localDetailSlider.onValueChanged.AddListener(OnSliderChanged);
             microDetailSlider.onValueChanged.AddListener(OnSliderChanged);
+            landformSlider.onValueChanged.AddListener(OnSliderChanged);
             surfaceDetailViewToggle.onValueChanged.AddListener(OnSurfaceDetailViewToggled);
             surfaceDetailViewButton.onClick.AddListener(OnSurfaceDetailViewClicked);
         }
@@ -80,6 +89,7 @@ namespace Planetwalker.UI
             regionalDetailSlider.onValueChanged.RemoveListener(OnSliderChanged);
             localDetailSlider.onValueChanged.RemoveListener(OnSliderChanged);
             microDetailSlider.onValueChanged.RemoveListener(OnSliderChanged);
+            landformSlider.onValueChanged.RemoveListener(OnSliderChanged);
             surfaceDetailViewToggle.onValueChanged.RemoveListener(OnSurfaceDetailViewToggled);
             surfaceDetailViewButton.onClick.RemoveListener(OnSurfaceDetailViewClicked);
         }
@@ -100,6 +110,7 @@ namespace Planetwalker.UI
             definition.regionalDetail = regionalDetailSlider.value;
             definition.localDetail = localDetailSlider.value;
             definition.microDetail = microDetailSlider.value;
+            definition.regionalLandforms = landformSlider.value;
         }
 
         void SyncSurfaceDetailFromDefinition(PlanetDefinition definition)
@@ -108,6 +119,7 @@ namespace Planetwalker.UI
             regionalDetailSlider.SetValueWithoutNotify(definition.regionalDetail);
             localDetailSlider.SetValueWithoutNotify(definition.localDetail);
             microDetailSlider.SetValueWithoutNotify(definition.microDetail);
+            landformSlider.SetValueWithoutNotify(definition.regionalLandforms);
             UpdateSurfaceDetailValueLabels();
         }
 
@@ -116,6 +128,7 @@ namespace Planetwalker.UI
             regionalDetailValue.text = regionalDetailSlider.value.ToString("0.00", CultureInfo.InvariantCulture) + "x";
             localDetailValue.text = localDetailSlider.value.ToString("0.00", CultureInfo.InvariantCulture) + "x";
             microDetailValue.text = microDetailSlider.value.ToString("0.00", CultureInfo.InvariantCulture) + "x";
+            landformValue.text = landformSlider.value.ToString("0.00", CultureInfo.InvariantCulture) + "x";
         }
 
         void OnSurfaceDetailViewToggled(bool show)
@@ -184,7 +197,11 @@ namespace Planetwalker.UI
                 PlanetScale.FormatDistance(p.OctaveCount > 0 ? p.WavelengthMeters(0) : 0), PlanetScale.FormatDistance(p.OctaveCount > 0 ? p.WavelengthMeters(p.OctaveCount - 1) : 0),
                 regional, PlanetScale.FormatDistance(scale.ElevationToMeters(p.BandAmplitude[0])),
                 local, PlanetScale.FormatDistance(scale.ElevationToMeters(p.BandAmplitude[1])),
-                micro, PlanetScale.FormatDistance(scale.ElevationToMeters(p.BandAmplitude[2])));
+                micro, PlanetScale.FormatDistance(scale.ElevationToMeters(p.BandAmplitude[2])))
+                + (detail.Landforms != null
+                    ? string.Format(CultureInfo.InvariantCulture, "\nLandforms {0:0.00}x: valleys to {1}, plateaus, coastal plains",
+                        detail.Landforms.Strength, PlanetScale.FormatDistance(scale.ElevationToMeters(detail.Landforms.MaxValleyDepth)))
+                    : "\nLandforms off (V0.2.0F terrain)");
         }
     }
 }

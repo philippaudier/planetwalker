@@ -200,6 +200,7 @@ namespace Planetwalker.Tests
             t.regionalDetail = 1.4f;
             t.localDetail = 0.6f;
             t.microDetail = 1.8f;
+            t.regionalLandforms = 0.7f;
 
             c.Hydrology.resolution = HydrologySettings.PreviewResolution;
             c.Hydrology.riverNetworkThreshold = 1e-3f;

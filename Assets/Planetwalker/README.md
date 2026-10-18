@@ -590,6 +590,47 @@ normals, then the materials that follow them; no holes at any budget; mesh vs au
 **Controls** (SURFACE MATERIALS): *Materials: PBR / Procedural (V0.2.0E)*, *PBR Detail*, *View* (Final Lit, Material
 ID, Albedo, Normal, Roughness, Triplanar), status line. Presentation only: never archived.
 
+## Regional Landform Identity (V0.2.0G.1)
+
+Three landform families shaped from the planet's own geography (`Generation/RegionalLandforms`), between the planetary
+terrain e0 and the surface detail bands, so regions read from their shape alone (no texture, vegetation or prop):
+
+- **Mountain valleys** (V0.2.0G.1.1, `Generation/ValleyNetwork`) — the drainage network of the ranges: e0 sampled on
+  a 128-per-face cube grid (~78 km cells) and run through the existing `HydrologySystem` (Priority-Flood, steepest
+  descent; one strictly lower receiver per cell, so a forest of open trees, never a loop), once per planet (~200 ms).
+  Channels: range cells (influence 0.08 and up) draining at least 2 cells; the paths through the cell centers smoothed
+  into curves through the edge midpoints (tributaries end where their trunk begins), gently meandering (3.5 km).
+  Width grows with the drained area, 5 km tributaries (V) to 22 km trunk valleys (U); depth bounded by the width (walls
+  under ~45 degrees), by 5 km and by 45% of the height above the sea; asymmetric walls; calm floors. Lookup per vertex:
+  one hash cell, a few segments (no tracing). V0.2.0G.1 drew corridors on the zero lines of a noise: level sets of a
+  smooth field on a sphere are closed curves, hence the rings and horseshoes it showed.
+- **Plateaus** — inland (continental field above ~0.1), outside ranges, where a seeded 500 km regional field exceeds a
+  threshold: uplift 1.2-2.6 km, the e0 undulations flattened by 45% (at most 3 km), lobate margins (90 km and 30 km
+  edge noise), steep (~2 km) or gradual (~10 km) scarps by region, never steeper on average than ~45 degrees,
+  dissected escarpment bands, calm tops.
+- **Coastal plains** — within ~0.05-0.15 of the coastline in continental-field units (~100-250 km at default settings),
+  outside ranges, on the coasts a seeded 900 km field selects: the land lowered by 90% of its height above the first
+  150 m (the shore itself keeps e0's shape: beaches, cliffs, coastline) and by 3 km at most, a broad inland rise (fall
+  line) where the weight fades, gentle swells of at most 60 m (12 km cells).
+
+Guarantees: every change is proportional to the height above the sea (or faded within 2 km of it): **no land / sea
+change**, the coastline of e0 is kept exactly; pure function of the direction (no cube face, patch, LOD or camera
+input); weights are smooth (no hard region boundary). Scales: coastal plains are hundreds of kilometers wide and part of
+the terrain at every spacing (the legacy world, hydrology, climate and biomes see them, identically at any resolution).
+Valleys, swells and plateaus (blocks bounded by scarps of a few kilometers, which a 78-156 km analysis grid would alias)
+are band-limited like the noise octaves, fading over two octaves below their width: absent from analysis grids of 30 km
+and coarser (hydrology, lakes and rivers keep their V0.2.0F.3 basins there). The adaptive patches always sample the
+full function; relief bounds sample the landforms complete, the LOD error counts unresolved valleys.
+
+**Setting**: *Landforms* (SURFACE DETAIL, `PlanetDefinition.regionalLandforms`, 0-2, default 1; depths and uplift scale
+with it, shapes saturate at 1). A terrain setting, archived. Archives written before V0.2.0G.1 have no such field: they
+load with 0 (landforms off: their terrain is bit-identical to what they recorded); generator version `Genesis V0.2.0G.1`,
+`Genesis V0.2.0C` stays exact. **Views** (SURFACE DETAIL > Show Detail Layers): *Landforms* (influence: red valley
+region, bright corridors, green plateau, blue coastal plain), *Landform Shift* (blue lowered, red raised, +-2.5 km),
+*Relief (clay)* (one flat color under the sun: lit terrain material, no geology, material or ground layer).
+Before / after evidence (same seed, directions, headings and clearances): `Docs/Captures/V0.2.0G.1/`, report
+`Docs/Reports/V0.2.0G.1_Validation.md`.
+
 ## Architecture
 
 | Layer | Files | Role |
@@ -654,12 +695,24 @@ ID, Albedo, Normal, Roughness, Triplanar), status line. Presentation only: never
 | Generation | `Generation/TerrainDetail` | Detail profile (octaves, bounds), relief field, regional / local / micro detail evaluation |
 | Rendering | `Rendering/SurfaceDetailDebugColors` | Surface detail debug views |
 | Presentation | `UI/PlanetGenerationPanel.SurfaceDetail` | SURFACE DETAIL section |
+| Generation | `Generation/RegionalLandforms` | Regional landforms (V0.2.0G.1): mountain valleys, plateaus, coastal plains; weights, shaping, band limits |
+| Generation | `Generation/ValleyNetwork` | Valley drainage network of the ranges (V0.2.0G.1.1): e0 hydrology, smoothed open paths, segment hash, carve lookup |
 
 Elevation convention: dimensionless, fraction of the reference radius
 (surface point = `dir * radius * (1 + elevation)`), so terrain shape is independent of the
 rendering scale.
 
 ## Changelog
+
+### V0.2.0G.1.1 — Valley Morphology Correction
+- Mountain valleys follow the ranges' drainage network (open, converging, widening downstream) instead of the zero lines
+  of a noise, whose closed level sets drew rings and horseshoes. Plateaus and coastal plains unchanged.
+
+### V0.2.0G.1 — Regional Landform Identity
+- Mountain valleys along the ranges, inland plateaus with escarpments, low coastal plains, derived from the planet's
+  geography between the planetary terrain and the surface detail; coastlines, seeds and the legacy world (hydrology,
+  climate, biomes) unchanged. *Landforms* setting (archived; older archives load with it off), landform debug views and
+  a lit clay relief view.
 
 ### V0.2.0F — Physically Based Planetary Surfaces
 - Six CC0 PBR scans (Poly Haven) distributed by the surface geology: texture arrays, footprint-scaled triplanar

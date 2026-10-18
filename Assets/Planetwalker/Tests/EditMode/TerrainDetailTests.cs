@@ -207,13 +207,15 @@ namespace Planetwalker.Tests
             foreach (int seed in WorldArchiveTestUtil.ReferenceSeeds)
             {
                 PlanetHeightGenerator off = Planet(seed, false).Height, on = Planet(seed, true).Height;
+                // The detail bands alone (V0.2.0G.1 landforms reshape the planetary terrain at every scale: LandformTests).
+                var bandsOnly = new PlanetHeightGenerator(new PlanetDefinition { seed = seed, regionalLandforms = 0f });
                 Assert.IsFalse(off.HasSurfaceDetail);
                 Assert.IsNull(off.SurfaceDetail);
                 foreach (Vector3 d in Directions(3000, seed))
                 {
                     Assert.AreEqual(Bits(off.GetElevation(d)), Bits(on.GetBaseElevation(d)), "The planetary terrain is unchanged");
                     Assert.AreEqual(Bits(off.GetElevation(d)), Bits(off.GetElevation(d, 0.01f)), "Band limiting has no effect without detail");
-                    Assert.AreEqual(off.GetSurfaceNormal(d, 0.03f), on.GetSurfaceNormal(d, 0.03f), "Coarse band-limited normals equal the planetary ones (every octave below 2 x spacing)");
+                    Assert.AreEqual(off.GetSurfaceNormal(d, 0.03f), bandsOnly.GetSurfaceNormal(d, 0.03f), "Coarse band-limited normals equal the planetary ones (every octave below 2 x spacing)");
                     off.SampleBase(d, out TerrainBaseSample context);
                     Assert.AreEqual(off.GetElevation(d), off.GetElevation(new Vector3d(d)), context.Core > 0f ? 1e-5f : context.Influence > 0f ? 3e-6f : 1e-6f, "Fine base within the float rounding noise");
                 }
@@ -248,7 +250,8 @@ namespace Planetwalker.Tests
                 Assert.AreEqual(Bits(f.Local), Bits(m.Local));
                 Assert.AreEqual(Bits(f.Regional), Bits(l.Regional));
                 Assert.AreEqual(Bits(f.Micro), Bits(l.Micro));
-                if (f.Local != 0f && e0 - full.SeaLevel > coastBand)
+                // The bands read the planetary terrain as the regional landforms (V0.2.0G.1) reshaped it.
+                if (f.Local != 0f && e0 + f.Landform - full.SeaLevel > coastBand)
                 {
                     land++;
                     // Above the coast fade band, half the amplitude of every local octave is exactly half the value.
@@ -281,7 +284,11 @@ namespace Planetwalker.Tests
                     {
                         land++;
                         Assert.Greater(e, on.SeaLevel, "Land never sinks below the sea");
-                        worstRelative = Mathf.Max(worstRelative, (e0 - e) / (e0 - off.SeaLevel));
+                        // The detail bands act on the planetary terrain as the regional landforms (V0.2.0G.1) reshaped it
+                        // (coastal plains are lowered on purpose, LandformTests bound that): the bands' own dip from there.
+                        on.SampleLayers(d, out TerrainDetailSample s);
+                        float shaped = e0 + s.Landform;
+                        worstRelative = Mathf.Max(worstRelative, (shaped - e) / (shaped - off.SeaLevel));
                     }
                 }
                 Assert.AreEqual(Planet(seed, true).LandFraction, Planet(seed, false).LandFraction, 1e-6f, "Same land fraction (same shoreline)");
@@ -330,18 +337,28 @@ namespace Planetwalker.Tests
                 Assert.AreEqual(1f, p.Weight(k, wavelength * 0.25f), "At a quarter wavelength it is whole");
                 Assert.AreEqual(1f, p.Weight(k, 0f));
             }
-            // At the legacy mesh spacing (resolution 64) the band-limited elevation has no detail octave left: it is e0.
+            // At the legacy mesh spacing (resolution 64) the band-limited elevation has no detail octave left: it is e0
+            // (the detail bands alone; the V0.2.0G.1 landforms are part of the terrain at every scale, see below).
             float legacySpacing = Mathf.PI * 0.5f / 64f;
-            int same = 0, total = 0;
+            var bandsOnly = new PlanetHeightGenerator(new PlanetDefinition { seed = 1337, regionalLandforms = 0f });
+            int same = 0, total = 0, bandsGone = 0;
             foreach (Vector3 d in Directions(3000))
             {
                 total++;
-                if (Bits(h.GetElevation(d, legacySpacing)) == Bits(h.GetBaseElevation(d)))
+                if (Bits(bandsOnly.GetElevation(d, legacySpacing)) == Bits(bandsOnly.GetBaseElevation(d)))
                 {
                     same++;
                 }
+                // With landforms: every detail octave is still exactly zero at that spacing.
+                h.SampleBase(d, out TerrainBaseSample context);
+                h.SurfaceDetail.Evaluate(d, context, legacySpacing, out TerrainDetailSample bands);
+                if (bands.Regional == 0f && bands.Local == 0f && bands.Micro == 0f)
+                {
+                    bandsGone++;
+                }
             }
             Assert.AreEqual(total, same, "Legacy-spacing samples are the planetary terrain exactly (every octave is below 2 x spacing)");
+            Assert.AreEqual(total, bandsGone, "With landforms too, no detail octave is left at the legacy spacing");
 
             // Double path: along a 100 m window the second differences of the elevation are far smaller than the
             // float path's (whose directions are quantized at ~0.4 m and alias against the sampling grid).

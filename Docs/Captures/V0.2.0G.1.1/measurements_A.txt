@@ -1,0 +1,6 @@
+Preset P1 (seed 1337): direction (-0.779310, -0.626383, -0.017900), facing north
+Preset P2 (seed 1337): direction (0.579683, -0.097483, -0.808990), facing north
+Preset P3 (seed 1337): direction (-0.378378, 0.511050, -0.771789), facing north
+Config A: landforms 1, valley network 1314 channel cells, 5948 segments, built in 180 ms
+Perf mode A landforms 0: patch build 3.578 ms/patch (24 mountain patches x 5), planet construction 143 ms
+Perf mode A landforms 1: patch build 3.542 ms/patch (24 mountain patches x 5), planet construction 325 ms

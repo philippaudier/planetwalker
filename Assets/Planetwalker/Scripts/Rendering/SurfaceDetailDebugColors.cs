@@ -29,6 +29,10 @@ namespace Planetwalker.Rendering
                 return NoDetail;
             }
             float baseElevation = height.SampleLayers(direction, out TerrainDetailSample sample);
+            if (PlanetDebugViews.IsLandform(view))
+            {
+                return Landform(height, view, sample);
+            }
             float value, scale;
             float[] bands = detail.Profile.BandAmplitude;
             switch (view)
@@ -43,6 +47,37 @@ namespace Planetwalker.Rendering
             // Elevation tint: higher planetary terrain slightly brighter (relief stays readable).
             float tint = 0.85f + 0.3f * Mathf.Clamp01((baseElevation - height.SeaLevel) / 0.03f);
             return new Color(color.r * tint, color.g * tint, color.b * tint, 1f);
+        }
+
+        static readonly Color Clay = new Color(0.62f, 0.60f, 0.57f);
+        static readonly Color NoLandform = new Color(0.22f, 0.22f, 0.23f);
+        const float DisplacementScaleMeters = 2500f;
+
+        /// <summary>Regional landform views (V0.2.0G.1).</summary>
+        static Color Landform(PlanetHeightGenerator height, PlanetDebugView view, in TerrainDetailSample sample)
+        {
+            if (view == PlanetDebugView.LandformRelief)
+            {
+                return Clay;
+            }
+            if (height.SurfaceDetail.Landforms == null)
+            {
+                return NoDetail;
+            }
+            LandformSample l = sample.Landforms;
+            if (view == PlanetDebugView.LandformDisplacement)
+            {
+                float meters = (float)(l.Displacement * height.SurfaceDetail.Landforms.RadiusMeters);
+                float t = Mathf.Clamp(meters / DisplacementScaleMeters, -1f, 1f);
+                return Color.Lerp(Neutral, t < 0f ? Down : Up, Mathf.Sqrt(Mathf.Abs(t)));
+            }
+            // Influence: additive weights over a dark base; valley corridors lit inside the valley region.
+            var color = new Color(
+                0.25f * l.Valley + 0.75f * l.Corridor,
+                0.85f * l.Plateau,
+                0.95f * l.CoastalPlain);
+            float total = Mathf.Clamp01(l.Valley + l.Plateau + l.CoastalPlain);
+            return Color.Lerp(NoLandform, new Color(Mathf.Clamp01(color.r), Mathf.Clamp01(color.g), Mathf.Clamp01(color.b)) + NoLandform * 0.4f, total);
         }
     }
 }

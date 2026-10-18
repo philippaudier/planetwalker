@@ -1,0 +1,110 @@
+# V0.2.0G.1.1 A / B / C captures (batch, EditMode rendering)
+
+| File | Scenario | Seed | Clearance | Camera (planet space, render units) | LOD budget | Mode | View | Note |
+|---|---|---|---|---|---|---|---|---|
+| B_P1_250km_pbr.png | G.1.1 B | 1337 | 250000.0 m | (-101.779620, -81.807092, -2.337723) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 250km, pitch -50, view pbr, landforms 1 |
+| B_P1_20km_pbr.png | G.1.1 B | 1337 | 20000.0 m | (-95.434798, -76.707334, -2.191992) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 20km, pitch -35, view pbr, landforms 1 |
+| B_P1_2km_pbr.png | G.1.1 B | 1337 | 2000.0 m | (-94.938247, -76.308223, -2.180587) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 2km, pitch -15, view pbr, landforms 1 |
+| B_P1_200m_pbr.png | G.1.1 B | 1337 | 200.0 m | (-94.888592, -76.268312, -2.179446) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 200m, pitch -6, view pbr, landforms 1 |
+| B_P1_20m_pbr.png | G.1.1 B | 1337 | 20.0 m | (-94.883626, -76.264321, -2.179332) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 20m, pitch -3, view pbr, landforms 1 |
+| B_P2_250km_pbr.png | G.1.1 B | 1337 | 250000.0 m | (76.174074, -12.809928, -106.306357) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 250km, pitch -50, view pbr, landforms 1 |
+| B_P2_20km_pbr.png | G.1.1 B | 1337 | 20000.0 m | (71.454528, -12.016258, -99.719893) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 20km, pitch -35, view pbr, landforms 1 |
+| B_P2_2km_pbr.png | G.1.1 B | 1337 | 2000.0 m | (71.085172, -11.954145, -99.204431) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 2km, pitch -15, view pbr, landforms 1 |
+| B_P2_200m_pbr.png | G.1.1 B | 1337 | 200.0 m | (71.048237, -11.947934, -99.152884) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 200m, pitch -6, view pbr, landforms 1 |
+| B_P2_20m_pbr.png | G.1.1 B | 1337 | 20.0 m | (71.044543, -11.947313, -99.147730) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 20m, pitch -3, view pbr, landforms 1 |
+| B_P3_250km_pbr.png | G.1.1 B | 1337 | 250000.0 m | (-50.257664, 67.879682, -102.512048) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 250km, pitch -50, view pbr, landforms 1 |
+| B_P3_20km_pbr.png | G.1.1 B | 1337 | 20000.0 m | (-47.177065, 63.718921, -96.228458) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 20km, pitch -35, view pbr, landforms 1 |
+| B_P3_2km_pbr.png | G.1.1 B | 1337 | 2000.0 m | (-46.935974, 63.393296, -95.736699) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 2km, pitch -15, view pbr, landforms 1 |
+| B_P3_200m_pbr.png | G.1.1 B | 1337 | 200.0 m | (-46.911865, 63.360734, -95.687523) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 200m, pitch -6, view pbr, landforms 1 |
+| B_P3_20m_pbr.png | G.1.1 B | 1337 | 20.0 m | (-46.909454, 63.357478, -95.682605) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 20m, pitch -3, view pbr, landforms 1 |
+| B_P1_250km_clay.png | G.1.1 B | 1337 | 250000.0 m | (-101.779620, -81.807092, -2.337723) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 250km, pitch -50, view clay, landforms 1 |
+| B_P1_20km_clay.png | G.1.1 B | 1337 | 20000.0 m | (-95.434798, -76.707334, -2.191992) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 20km, pitch -35, view clay, landforms 1 |
+| B_P1_2km_clay.png | G.1.1 B | 1337 | 2000.0 m | (-94.938247, -76.308223, -2.180587) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 2km, pitch -15, view clay, landforms 1 |
+| B_P1_200m_clay.png | G.1.1 B | 1337 | 200.0 m | (-94.888592, -76.268312, -2.179446) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 200m, pitch -6, view clay, landforms 1 |
+| B_P1_20m_clay.png | G.1.1 B | 1337 | 20.0 m | (-94.883626, -76.264321, -2.179332) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 20m, pitch -3, view clay, landforms 1 |
+| B_P2_250km_clay.png | G.1.1 B | 1337 | 250000.0 m | (76.174074, -12.809928, -106.306357) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 250km, pitch -50, view clay, landforms 1 |
+| B_P2_20km_clay.png | G.1.1 B | 1337 | 20000.0 m | (71.454528, -12.016258, -99.719893) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 20km, pitch -35, view clay, landforms 1 |
+| B_P2_2km_clay.png | G.1.1 B | 1337 | 2000.0 m | (71.085172, -11.954145, -99.204431) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 2km, pitch -15, view clay, landforms 1 |
+| B_P2_200m_clay.png | G.1.1 B | 1337 | 200.0 m | (71.048237, -11.947934, -99.152884) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 200m, pitch -6, view clay, landforms 1 |
+| B_P2_20m_clay.png | G.1.1 B | 1337 | 20.0 m | (71.044543, -11.947313, -99.147730) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 20m, pitch -3, view clay, landforms 1 |
+| B_P3_250km_clay.png | G.1.1 B | 1337 | 250000.0 m | (-50.257664, 67.879682, -102.512048) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 250km, pitch -50, view clay, landforms 1 |
+| B_P3_20km_clay.png | G.1.1 B | 1337 | 20000.0 m | (-47.177065, 63.718921, -96.228458) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 20km, pitch -35, view clay, landforms 1 |
+| B_P3_2km_clay.png | G.1.1 B | 1337 | 2000.0 m | (-46.935974, 63.393296, -95.736699) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 2km, pitch -15, view clay, landforms 1 |
+| B_P3_200m_clay.png | G.1.1 B | 1337 | 200.0 m | (-46.911865, 63.360734, -95.687523) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 200m, pitch -6, view clay, landforms 1 |
+| B_P3_20m_clay.png | G.1.1 B | 1337 | 20.0 m | (-46.909454, 63.357478, -95.682605) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 20m, pitch -3, view clay, landforms 1 |
+| B_P1_250km_shift.png | G.1.1 B | 1337 | 250000.0 m | (-101.779620, -81.807092, -2.337723) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 250km, pitch -50, view shift, landforms 1 |
+| B_P1_20km_shift.png | G.1.1 B | 1337 | 20000.0 m | (-95.434798, -76.707334, -2.191992) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 20km, pitch -35, view shift, landforms 1 |
+| B_P1_2km_shift.png | G.1.1 B | 1337 | 2000.0 m | (-94.938247, -76.308223, -2.180587) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 2km, pitch -15, view shift, landforms 1 |
+| B_P1_200m_shift.png | G.1.1 B | 1337 | 200.0 m | (-94.888592, -76.268312, -2.179446) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 200m, pitch -6, view shift, landforms 1 |
+| B_P1_20m_shift.png | G.1.1 B | 1337 | 20.0 m | (-94.883626, -76.264321, -2.179332) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 20m, pitch -3, view shift, landforms 1 |
+| B_P2_250km_shift.png | G.1.1 B | 1337 | 250000.0 m | (76.174074, -12.809928, -106.306357) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 250km, pitch -50, view shift, landforms 1 |
+| B_P2_20km_shift.png | G.1.1 B | 1337 | 20000.0 m | (71.454528, -12.016258, -99.719893) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 20km, pitch -35, view shift, landforms 1 |
+| B_P2_2km_shift.png | G.1.1 B | 1337 | 2000.0 m | (71.085172, -11.954145, -99.204431) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 2km, pitch -15, view shift, landforms 1 |
+| B_P2_200m_shift.png | G.1.1 B | 1337 | 200.0 m | (71.048237, -11.947934, -99.152884) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 200m, pitch -6, view shift, landforms 1 |
+| B_P2_20m_shift.png | G.1.1 B | 1337 | 20.0 m | (71.044543, -11.947313, -99.147730) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 20m, pitch -3, view shift, landforms 1 |
+| B_P3_250km_shift.png | G.1.1 B | 1337 | 250000.0 m | (-50.257664, 67.879682, -102.512048) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 250km, pitch -50, view shift, landforms 1 |
+| B_P3_20km_shift.png | G.1.1 B | 1337 | 20000.0 m | (-47.177065, 63.718921, -96.228458) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 20km, pitch -35, view shift, landforms 1 |
+| B_P3_2km_shift.png | G.1.1 B | 1337 | 2000.0 m | (-46.935974, 63.393296, -95.736699) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 2km, pitch -15, view shift, landforms 1 |
+| B_P3_200m_shift.png | G.1.1 B | 1337 | 200.0 m | (-46.911865, 63.360734, -95.687523) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 200m, pitch -6, view shift, landforms 1 |
+| B_P3_20m_shift.png | G.1.1 B | 1337 | 20.0 m | (-46.909454, 63.357478, -95.682605) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 20m, pitch -3, view shift, landforms 1 |
+| B_P1_250km_influence.png | G.1.1 B | 1337 | 250000.0 m | (-101.779620, -81.807092, -2.337723) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 250km, pitch -50, view influence, landforms 1 |
+| B_P1_20km_influence.png | G.1.1 B | 1337 | 20000.0 m | (-95.434798, -76.707334, -2.191992) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 20km, pitch -35, view influence, landforms 1 |
+| B_P1_2km_influence.png | G.1.1 B | 1337 | 2000.0 m | (-94.938247, -76.308223, -2.180587) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 2km, pitch -15, view influence, landforms 1 |
+| B_P1_200m_influence.png | G.1.1 B | 1337 | 200.0 m | (-94.888592, -76.268312, -2.179446) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 200m, pitch -6, view influence, landforms 1 |
+| B_P1_20m_influence.png | G.1.1 B | 1337 | 20.0 m | (-94.883626, -76.264321, -2.179332) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 20m, pitch -3, view influence, landforms 1 |
+| B_P2_250km_influence.png | G.1.1 B | 1337 | 250000.0 m | (76.174074, -12.809928, -106.306357) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 250km, pitch -50, view influence, landforms 1 |
+| B_P2_20km_influence.png | G.1.1 B | 1337 | 20000.0 m | (71.454528, -12.016258, -99.719893) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 20km, pitch -35, view influence, landforms 1 |
+| B_P2_2km_influence.png | G.1.1 B | 1337 | 2000.0 m | (71.085172, -11.954145, -99.204431) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 2km, pitch -15, view influence, landforms 1 |
+| B_P2_200m_influence.png | G.1.1 B | 1337 | 200.0 m | (71.048237, -11.947934, -99.152884) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 200m, pitch -6, view influence, landforms 1 |
+| B_P2_20m_influence.png | G.1.1 B | 1337 | 20.0 m | (71.044543, -11.947313, -99.147730) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 20m, pitch -3, view influence, landforms 1 |
+| B_P3_250km_influence.png | G.1.1 B | 1337 | 250000.0 m | (-50.257664, 67.879682, -102.512048) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 250km, pitch -50, view influence, landforms 1 |
+| B_P3_20km_influence.png | G.1.1 B | 1337 | 20000.0 m | (-47.177065, 63.718921, -96.228458) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 20km, pitch -35, view influence, landforms 1 |
+| B_P3_2km_influence.png | G.1.1 B | 1337 | 2000.0 m | (-46.935974, 63.393296, -95.736699) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 2km, pitch -15, view influence, landforms 1 |
+| B_P3_200m_influence.png | G.1.1 B | 1337 | 200.0 m | (-46.911865, 63.360734, -95.687523) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 200m, pitch -6, view influence, landforms 1 |
+| B_P3_20m_influence.png | G.1.1 B | 1337 | 20.0 m | (-46.909454, 63.357478, -95.682605) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 20m, pitch -3, view influence, landforms 1 |
+| C_P1_250km_pbr.png | G.1.1 C | 1337 | 250000.0 m | (-101.779620, -81.807092, -2.337723) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 250km, pitch -50, view pbr, landforms 0 |
+| C_P1_20km_pbr.png | G.1.1 C | 1337 | 20000.0 m | (-95.434798, -76.707334, -2.191992) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 20km, pitch -35, view pbr, landforms 0 |
+| C_P1_2km_pbr.png | G.1.1 C | 1337 | 2000.0 m | (-94.938247, -76.308223, -2.180587) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 2km, pitch -15, view pbr, landforms 0 |
+| C_P1_200m_pbr.png | G.1.1 C | 1337 | 200.0 m | (-94.888592, -76.268312, -2.179446) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 200m, pitch -6, view pbr, landforms 0 |
+| C_P1_20m_pbr.png | G.1.1 C | 1337 | 20.0 m | (-94.883626, -76.264321, -2.179332) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 20m, pitch -3, view pbr, landforms 0 |
+| C_P2_250km_pbr.png | G.1.1 C | 1337 | 250000.0 m | (76.174074, -12.809928, -106.306357) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 250km, pitch -50, view pbr, landforms 0 |
+| C_P2_20km_pbr.png | G.1.1 C | 1337 | 20000.0 m | (71.454528, -12.016258, -99.719893) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 20km, pitch -35, view pbr, landforms 0 |
+| C_P2_2km_pbr.png | G.1.1 C | 1337 | 2000.0 m | (71.085172, -11.954145, -99.204431) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 2km, pitch -15, view pbr, landforms 0 |
+| C_P2_200m_pbr.png | G.1.1 C | 1337 | 200.0 m | (71.048237, -11.947934, -99.152884) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 200m, pitch -6, view pbr, landforms 0 |
+| C_P2_20m_pbr.png | G.1.1 C | 1337 | 20.0 m | (71.044543, -11.947313, -99.147730) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 20m, pitch -3, view pbr, landforms 0 |
+| C_P3_250km_pbr.png | G.1.1 C | 1337 | 250000.0 m | (-50.257664, 67.879682, -102.512048) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 250km, pitch -50, view pbr, landforms 0 |
+| C_P3_20km_pbr.png | G.1.1 C | 1337 | 20000.0 m | (-47.177065, 63.718921, -96.228458) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 20km, pitch -35, view pbr, landforms 0 |
+| C_P3_2km_pbr.png | G.1.1 C | 1337 | 2000.0 m | (-46.935974, 63.393296, -95.736699) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 2km, pitch -15, view pbr, landforms 0 |
+| C_P3_200m_pbr.png | G.1.1 C | 1337 | 200.0 m | (-46.911865, 63.360734, -95.687523) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 200m, pitch -6, view pbr, landforms 0 |
+| C_P3_20m_pbr.png | G.1.1 C | 1337 | 20.0 m | (-46.909454, 63.357478, -95.682605) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 20m, pitch -3, view pbr, landforms 0 |
+| C_P1_250km_clay.png | G.1.1 C | 1337 | 250000.0 m | (-101.779620, -81.807092, -2.337723) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 250km, pitch -50, view clay, landforms 0 |
+| C_P1_20km_clay.png | G.1.1 C | 1337 | 20000.0 m | (-95.434798, -76.707334, -2.191992) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 20km, pitch -35, view clay, landforms 0 |
+| C_P1_2km_clay.png | G.1.1 C | 1337 | 2000.0 m | (-94.938247, -76.308223, -2.180587) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 2km, pitch -15, view clay, landforms 0 |
+| C_P1_200m_clay.png | G.1.1 C | 1337 | 200.0 m | (-94.888592, -76.268312, -2.179446) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 200m, pitch -6, view clay, landforms 0 |
+| C_P1_20m_clay.png | G.1.1 C | 1337 | 20.0 m | (-94.883626, -76.264321, -2.179332) | 1024 | Pbr | FinalLit | seed 1337 preset P1, 20m, pitch -3, view clay, landforms 0 |
+| C_P2_250km_clay.png | G.1.1 C | 1337 | 250000.0 m | (76.174074, -12.809928, -106.306357) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 250km, pitch -50, view clay, landforms 0 |
+| C_P2_20km_clay.png | G.1.1 C | 1337 | 20000.0 m | (71.454528, -12.016258, -99.719893) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 20km, pitch -35, view clay, landforms 0 |
+| C_P2_2km_clay.png | G.1.1 C | 1337 | 2000.0 m | (71.085172, -11.954145, -99.204431) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 2km, pitch -15, view clay, landforms 0 |
+| C_P2_200m_clay.png | G.1.1 C | 1337 | 200.0 m | (71.048237, -11.947934, -99.152884) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 200m, pitch -6, view clay, landforms 0 |
+| C_P2_20m_clay.png | G.1.1 C | 1337 | 20.0 m | (71.044543, -11.947313, -99.147730) | 1024 | Pbr | FinalLit | seed 1337 preset P2, 20m, pitch -3, view clay, landforms 0 |
+| C_P3_250km_clay.png | G.1.1 C | 1337 | 250000.0 m | (-50.257664, 67.879682, -102.512048) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 250km, pitch -50, view clay, landforms 0 |
+| C_P3_20km_clay.png | G.1.1 C | 1337 | 20000.0 m | (-47.177065, 63.718921, -96.228458) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 20km, pitch -35, view clay, landforms 0 |
+| C_P3_2km_clay.png | G.1.1 C | 1337 | 2000.0 m | (-46.935974, 63.393296, -95.736699) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 2km, pitch -15, view clay, landforms 0 |
+| C_P3_200m_clay.png | G.1.1 C | 1337 | 200.0 m | (-46.911865, 63.360734, -95.687523) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 200m, pitch -6, view clay, landforms 0 |
+| C_P3_20m_clay.png | G.1.1 C | 1337 | 20.0 m | (-46.909454, 63.357478, -95.682605) | 1024 | Pbr | FinalLit | seed 1337 preset P3, 20m, pitch -3, view clay, landforms 0 |
+| R_B_plateau_2km_pbr.png | G.1.1 regression | 1337 | 2000.0 m | (16.087569, 61.390298, -102.815055) | 1024 | Pbr | FinalLit | seed 310929 G.1 showcase plateau, 2km, view pbr, landforms 1 |
+| R_B_plateau_200m_pbr.png | G.1.1 regression | 1337 | 200.0 m | (15.946535, 61.468852, -102.811877) | 1024 | Pbr | FinalLit | seed 310929 G.1 showcase plateau, 200m, view pbr, landforms 1 |
+| R_B_plain_2km_pbr.png | G.1.1 regression | 1337 | 2000.0 m | (-23.737332, 21.921679, 115.912771) | 1024 | Pbr | FinalLit | seed 310929 G.1 showcase plain, 2km, view pbr, landforms 1 |
+| R_B_plain_200m_pbr.png | G.1.1 regression | 1337 | 200.0 m | (-23.606166, 21.806880, 115.881922) | 1024 | Pbr | FinalLit | seed 310929 G.1 showcase plain, 200m, view pbr, landforms 1 |
+| R_B_plateau_2km_clay.png | G.1.1 regression | 1337 | 2000.0 m | (16.087569, 61.390298, -102.815055) | 1024 | Pbr | FinalLit | seed 310929 G.1 showcase plateau, 2km, view clay, landforms 1 |
+| R_B_plateau_200m_clay.png | G.1.1 regression | 1337 | 200.0 m | (15.946535, 61.468852, -102.811877) | 1024 | Pbr | FinalLit | seed 310929 G.1 showcase plateau, 200m, view clay, landforms 1 |
+| R_B_plain_2km_clay.png | G.1.1 regression | 1337 | 2000.0 m | (-23.737332, 21.921679, 115.912771) | 1024 | Pbr | FinalLit | seed 310929 G.1 showcase plain, 2km, view clay, landforms 1 |
+| R_B_plain_200m_clay.png | G.1.1 regression | 1337 | 200.0 m | (-23.606166, 21.806880, 115.881922) | 1024 | Pbr | FinalLit | seed 310929 G.1 showcase plain, 200m, view clay, landforms 1 |
+| R_C_plateau_2km_pbr.png | G.1.1 regression | 1337 | 2000.0 m | (16.075762, 61.345243, -102.739597) | 1024 | Pbr | FinalLit | seed 310929 G.1 showcase plateau, 2km, view pbr, landforms 0 |
+| R_C_plateau_200m_pbr.png | G.1.1 regression | 1337 | 200.0 m | (15.931109, 61.409387, -102.712418) | 1024 | Pbr | FinalLit | seed 310929 G.1 showcase plateau, 200m, view pbr, landforms 0 |
+| R_C_plain_2km_pbr.png | G.1.1 regression | 1337 | 2000.0 m | (-23.754444, 21.937482, 115.996332) | 1024 | Pbr | FinalLit | seed 310929 G.1 showcase plain, 2km, view pbr, landforms 0 |
+| R_C_plain_200m_pbr.png | G.1.1 regression | 1337 | 200.0 m | (-23.611302, 21.811625, 115.907136) | 1024 | Pbr | FinalLit | seed 310929 G.1 showcase plain, 200m, view pbr, landforms 0 |
+| R_C_plateau_2km_clay.png | G.1.1 regression | 1337 | 2000.0 m | (16.075762, 61.345243, -102.739597) | 1024 | Pbr | FinalLit | seed 310929 G.1 showcase plateau, 2km, view clay, landforms 0 |
+| R_C_plateau_200m_clay.png | G.1.1 regression | 1337 | 200.0 m | (15.931109, 61.409387, -102.712418) | 1024 | Pbr | FinalLit | seed 310929 G.1 showcase plateau, 200m, view clay, landforms 0 |
+| R_C_plain_2km_clay.png | G.1.1 regression | 1337 | 2000.0 m | (-23.754444, 21.937482, 115.996332) | 1024 | Pbr | FinalLit | seed 310929 G.1 showcase plain, 2km, view clay, landforms 0 |
+| R_C_plain_200m_clay.png | G.1.1 regression | 1337 | 200.0 m | (-23.611302, 21.811625, 115.907136) | 1024 | Pbr | FinalLit | seed 310929 G.1 showcase plain, 200m, view clay, landforms 0 |

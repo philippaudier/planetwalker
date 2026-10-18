@@ -1,0 +1,64 @@
+# Recreates the V0.2.0G.1 noise valleys (configuration A) in the scratch copy only.
+import sys
+p = sys.argv[1]
+c = open(p, encoding='utf-8').read()
+i = c.index('            // ---- Mountain valleys (V0.2.0G.1.1)')
+j = c.index('            // ---- Plateaus.')
+old = '''            // ---- Mountain valleys (V0.2.0G.1 noise corridors: configuration A of the G.1.1 comparison).
+            float valleyRegion = SmoothStep(0.12f, 0.45f, m);
+            if (valleyRegion > 0f)
+            {
+                Vector3d q = precise + new Vector3d(context.Anisotropy) * m;
+                float character = PlanetNoise.Gradient(direction.x * aFC, direction.y * aFC, direction.z * aFC, aCharSeed);
+                float broad = SmoothStep(-0.35f, 0.35f, character) * Mathf.Lerp(1f, 0.6f, core);
+                float halfWidth = Mathf.Lerp(0.05f, 0.16f, broad);
+                double halfWidthMeters = 120000.0 * halfWidth / 1.5f;
+                float n = PlanetNoise.Gradient(q.x * aFV, q.y * aFV, q.z * aFV, aValleySeed);
+                float main = AProfile(Mathf.Abs(n) / halfWidth, broad);
+                float wallShare = Mathf.Lerp(0.55f, 0.38f, broad);
+                float depth = Mathf.Min(5000f, (float)halfWidthMeters * wallShare) * Mathf.Lerp(0.55f, 1f, core);
+                float carve = main * depth * BandWeight(halfWidthMeters * 2.0, spacing);
+                float tributaryRegion = SmoothStep(0.1f, 0.5f, core);
+                if (tributaryRegion > 0f)
+                {
+                    float halfWidthT = 0.05f * 1.2f;
+                    double halfWidthTMeters = 40000.0 * halfWidthT / 1.5f;
+                    float t = PlanetNoise.Gradient(q.x * aFT, q.y * aFT, q.z * aFT, aTribSeed);
+                    float tributary = AProfile(Mathf.Abs(t) / halfWidthT, 0f);
+                    float depthT = (float)halfWidthTMeters * 0.5f * tributaryRegion;
+                    float carveT = tributary * depthT * BandWeight(halfWidthTMeters * 2.0, spacing);
+                    carve = Mathf.Max(carve, carveT);
+                    main = Mathf.Max(main, tributary * tributaryRegion);
+                }
+                carve *= Strength * valleyRegion;
+                carve = Mathf.Min(carve, (float)hMeters * ValleyHeightShare);
+                displacement -= (float)(carve / radiusMeters);
+                sample.Valley = valleyRegion;
+                sample.Corridor = main * valleyRegion;
+                sample.Calm = Mathf.Max(sample.Calm, sample.Corridor);
+            }
+
+'''
+c = c[:i] + old + c[j:]
+c = c.replace('        readonly ValleyNetwork valleys;\n', '''        readonly ValleyNetwork valleys;
+        readonly int aValleySeed, aTribSeed, aCharSeed;
+        readonly float aFV, aFT, aFC;
+
+        static float AProfile(float s, float broad)
+        {
+            if (s >= 1f) return 0f;
+            float v = Mathf.Pow(1f - s, 1.6f);
+            float u = 1f - SmoothStep(0.35f, 1f, s);
+            return Mathf.Lerp(v, u, broad);
+        }
+''', 1)
+c = c.replace('            this.valleys = valleys;\n', '''            this.valleys = valleys;
+            aValleySeed = PlanetNoise.DeriveSeed(seed, 45);
+            aTribSeed = PlanetNoise.DeriveSeed(seed, 46);
+            aCharSeed = PlanetNoise.DeriveSeed(seed, 47);
+            aFV = (float)(scale.RadiusMeters / 120000.0);
+            aFT = (float)(scale.RadiusMeters / 40000.0);
+            aFC = (float)(scale.RadiusMeters / 350000.0);
+''', 1)
+open(p, 'w', encoding='utf-8').write(c)
+print('patched A', c.count('aValleySeed'))

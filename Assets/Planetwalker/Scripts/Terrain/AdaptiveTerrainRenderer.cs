@@ -519,7 +519,7 @@ namespace Planetwalker.Terrain
             block ??= new MaterialPropertyBlock();
             visual.WriteAdaptiveTerrainProperties(block);
             WriteGroundDetail(block, camera != null ? camera : ViewCamera != null ? ViewCamera : Camera.main);
-            var renderParams = new RenderParams(snapshot.DebugView == PlanetDebugView.None ? visual.TerrainMaterial : visual.DebugMaterial)
+            var renderParams = new RenderParams(PlanetDebugViews.IsLit(snapshot.DebugView) ? visual.TerrainMaterial : visual.DebugMaterial)
             {
                 camera = camera,
                 matProps = block,
@@ -558,8 +558,10 @@ namespace Planetwalker.Terrain
         public void WriteGroundDetail(MaterialPropertyBlock target, Camera viewer)
         {
             PlanetInstance planet = snapshot?.Planet;
-            bool ground = planet != null && planet.Definition.surfaceDetail && groundDetailStrength > 0f;
-            bool geology = planet != null && geologyEnabled && geologyStrength > 0f;
+            // The landform relief clay (V0.2.0G.1): shape and sunlight only (no ground layer, geology or materials).
+            bool clay = snapshot != null && snapshot.DebugView == PlanetDebugView.LandformRelief;
+            bool ground = planet != null && planet.Definition.surfaceDetail && groundDetailStrength > 0f && !clay;
+            bool geology = planet != null && geologyEnabled && geologyStrength > 0f && !clay;
             target.SetVector(GeoParamsId, geology && viewer != null
                 ? new Vector4(geologyStrength, (float)geologyDebugView, 1f, 0f)
                 : new Vector4(0f, (float)geologyDebugView, 0f, 0f));

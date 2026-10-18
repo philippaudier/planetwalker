@@ -275,11 +275,11 @@ namespace Planetwalker.Terrain
             float relief = planet.MaxRadius - planet.MinRadius;
             float slope = settings.assumedMaxSlope;
             float unresolved = 0f;
-            TerrainDetailProfile detail = planet.Planet.Height.SurfaceDetail?.Profile;
+            TerrainDetail detail = planet.Planet.Height.SurfaceDetail;
             if (detail != null)
             {
-                slope += detail.TypicalSlope(angle);
-                unresolved = detail.UnresolvedAmplitude(angle) * planet.Radius;
+                slope += detail.Profile.TypicalSlope(angle);
+                unresolved = detail.UnresolvedAmplitude(angle) * planet.Radius; // octaves and landform valleys (V0.2.0G.1)
             }
             return Mathf.Min(relief, slope * spacing + unresolved) + spacing * spacing / (8f * planet.Radius);
         }
@@ -512,7 +512,8 @@ namespace Planetwalker.Terrain
                 for (int i = 0; i < BoundSamples; i++)
                 {
                     float a = Mathf.Lerp(aMin, aMax, i / (BoundSamples - 1f)), b = Mathf.Lerp(bMin, bMax, j / (BoundSamples - 1f));
-                    float e = sampler.Planet.Height.GetElevation(CubeSphereCoordinates.FaceToDirection(id.Face, a, b), sampleAngle);
+                    // Octaves band-limited, landforms complete (V0.2.0G.1: the patches sample them whatever their width).
+                    float e = sampler.Planet.Height.GetBoundsElevation(CubeSphereCoordinates.FaceToDirection(id.Face, a, b), sampleAngle);
                     low = Mathf.Min(low, e);
                     high = Mathf.Max(high, e);
                 }
@@ -541,11 +542,11 @@ namespace Planetwalker.Terrain
             float spacing = 1.25f * planet.Radius * angle;
             float slope = settings.assumedMaxSlope;
             float unresolved = 0f;
-            TerrainDetailProfile detail = planet.Planet.Height.SurfaceDetail?.Profile;
+            TerrainDetail detail = planet.Planet.Height.SurfaceDetail;
             if (detail != null)
             {
-                slope += detail.TypicalSlope(angle);
-                unresolved = detail.UnresolvedAmplitude(angle) * planet.Radius;
+                slope += detail.Profile.TypicalSlope(angle);
+                unresolved = detail.UnresolvedAmplitude(angle) * planet.Radius; // octaves and landform valleys (V0.2.0G.1)
             }
             return Mathf.Min(planet.MaxRadius - planet.MinRadius, slope * spacing + unresolved);
         }

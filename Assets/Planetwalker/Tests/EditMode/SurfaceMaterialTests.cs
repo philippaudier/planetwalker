@@ -49,6 +49,22 @@ namespace Planetwalker.Tests
             return planet;
         }
 
+        /// <summary>
+        /// The reference planet as V0.2.0F calibrated its shore statistics on (no regional landforms, V0.2.0G.1): the coast
+        /// tests measure the geology's shore model on that very terrain; with landforms the coastal plains change which
+        /// shores exist (LandformTests checks the coastline itself).
+        /// </summary>
+        static PlanetInstance CalibrationPlanet()
+        {
+            const int seed = 310929;
+            if (!Planets.TryGetValue(-seed, out PlanetInstance planet))
+            {
+                planet = new PlanetInstance(new PlanetDefinition { seed = seed, regionalLandforms = 0f });
+                Planets[-seed] = planet;
+            }
+            return planet;
+        }
+
         static float[] Weights(in GeologySample g)
         {
             var w = new float[SurfaceMaterials.Count];
@@ -628,7 +644,7 @@ namespace Planetwalker.Tests
         [Test]
         public void Coast_GentleShoresGetBeaches_SteepShoresStayRocky()
         {
-            PlanetInstance planet = Planet();
+            PlanetInstance planet = CalibrationPlanet();
             var geology = new SurfaceGeology(planet, null);
             var points = Coastal(planet, geology, 12.0);
             var gentle = points.Where(p => p.g.Slope < 0.08f).ToList();
@@ -647,7 +663,7 @@ namespace Planetwalker.Tests
         {
             // V0.2.0E forced sediment over ~1.9 km of elevation above the sea. Now the coastal term ends within tens of
             // meters: flat land a few hundred meters up is decided by its own slope and concavity only.
-            PlanetInstance planet = Planet();
+            PlanetInstance planet = CalibrationPlanet();
             var geology = new SurfaceGeology(planet, null);
             double radiusM = planet.Scale.RadiusMeters;
             int checkedPoints = 0;

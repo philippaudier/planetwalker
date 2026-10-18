@@ -672,8 +672,8 @@ namespace Planetwalker.Tests
         [Test]
         public void T_GeneratorVersions_V013A_V013B_AndCurrent_AreExact_OlderStayBestEffort()
         {
-            Assert.AreEqual("Genesis V0.2.0C", PlanetArchive.CurrentGeneratorVersion);
-            foreach (string exact in new[] { "Genesis V0.1.3A", "Genesis V0.1.3B", PlanetArchive.CurrentGeneratorVersion })
+            Assert.AreEqual("Genesis V0.2.0G.1", PlanetArchive.CurrentGeneratorVersion);
+            foreach (string exact in new[] { "Genesis V0.1.3A", "Genesis V0.1.3B", "Genesis V0.2.0C", PlanetArchive.CurrentGeneratorVersion })
             {
                 ArchiveReadResult read = ReadModified(j => ReplaceMember(j, "generatorVersion", "\"" + exact + "\""));
                 Assert.IsTrue(read.Ok, read.Report.Summary());
@@ -687,6 +687,38 @@ namespace Planetwalker.Tests
                 Assert.IsTrue(read.Ok, read.Report.Summary());
                 Assert.AreEqual(GeneratorCompatibility.BestEffort, read.Compatibility, older);
                 Assert.IsTrue(read.Report.Warnings.Any(w => w.Contains("best-effort")), older);
+            }
+        }
+
+        // T4 (V0.2.0G.1)
+        [Test]
+        public void T_ArchivesBeforeV020G1_LoadWithLandformsOff_PresentValuesAreHonored()
+        {
+            // Every archive written before V0.2.0G.1 lacks terrain.regionalLandforms: it loads with landforms off, so its
+            // terrain is exactly what it recorded (V0.2.0C - V0.2.0F.3), silently (a documented rule, not a warning).
+            Assert.AreEqual(1f, new PlanetDefinition().regionalLandforms, "New worlds start with landforms");
+            ArchiveReadResult old = PlanetArchiveSerializer.Read(WorldArchiveTestUtil.V013AArchiveJson);
+            Assert.IsTrue(old.Ok, old.Report.Summary());
+            Assert.AreEqual(0f, old.Archive.Configuration.Terrain.regionalLandforms);
+            Assert.IsFalse(old.Archive.Configuration.Terrain.surfaceDetail, "Both rules apply to one archive");
+            CollectionAssert.Contains(old.Report.DefaultedFields, "terrain.regionalLandforms");
+            Assert.IsEmpty(old.Report.Warnings);
+
+            ArchiveReadResult removed = ReadModified(j => WithoutMember(j, "terrain", "regionalLandforms"));
+            Assert.IsTrue(removed.Ok, removed.Report.Summary());
+            Assert.AreEqual(0f, removed.Archive.Configuration.Terrain.regionalLandforms, "A V0.2.0C - F.3 archive: landforms off");
+            Assert.AreEqual(WorldArchiveTestUtil.NewArchive("Edited").Configuration.Terrain.surfaceDetail,
+                removed.Archive.Configuration.Terrain.surfaceDetail, "...and its surface detail as written");
+            Assert.IsEmpty(removed.Report.Warnings);
+
+            foreach (float value in new[] { 0f, 0.5f, 1f, 2f })
+            {
+                PlanetArchive archive = WorldArchiveTestUtil.NewArchive("Landforms " + value);
+                archive.Configuration.Terrain.regionalLandforms = value;
+                ArchiveReadResult read = PlanetArchiveSerializer.Read(PlanetArchiveSerializer.Serialize(archive));
+                Assert.IsTrue(read.Ok, read.Report.Summary());
+                Assert.AreEqual(value, read.Archive.Configuration.Terrain.regionalLandforms, "Present: honored");
+                Assert.IsEmpty(read.Report.DefaultedFields);
             }
         }
 
@@ -720,7 +752,8 @@ namespace Planetwalker.Tests
             int ruggedness = members.IndexOf("mountainRuggedness");
             Assert.GreaterOrEqual(ruggedness, 0);
             CollectionAssert.AreEqual(new[] { "radiusKilometers", "surfaceDetail", "regionalDetail", "localDetail", "microDetail" },
-                members.Skip(ruggedness + 1), "Declaration order of the V0.2.0C fields");
+                members.Skip(ruggedness + 1).Take(5), "Declaration order of the V0.2.0C fields");
+            CollectionAssert.AreEqual(new[] { "regionalLandforms" }, members.Skip(ruggedness + 6), "Then the V0.2.0G.1 field, last");
             WorldArchiveTestUtil.Report(terrain.ToJson());
         }
     }

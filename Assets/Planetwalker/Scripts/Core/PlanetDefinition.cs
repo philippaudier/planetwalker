@@ -151,6 +151,15 @@ namespace Planetwalker.Core
         [Range(0f, MaxSurfaceDetailLevel)]
         public float microDetail = 1f;
 
+        // Regional landforms (V0.2.0G.1). Archives older than V0.2.0G.1 have none: the serializer sets 0 for them
+        // (their terrain stays exactly what they recorded), while new worlds start with 1.
+
+        [Tooltip("Regional landform identity: mountain valleys along the ranges, inland plateaus with escarpments, "
+            + "low coastal plains, shaped from the planet's own geography (part of the surface detail). 0 = off "
+            + "(the V0.2.0F terrain exactly), 1 = default. Never moves coastlines. Range [0, 2].")]
+        [Range(0f, MaxSurfaceDetailLevel)]
+        public float regionalLandforms = 1f;
+
         public PlanetDefinition Clone()
         {
             return (PlanetDefinition)MemberwiseClone();
@@ -182,14 +191,16 @@ namespace Planetwalker.Core
                 && surfaceDetail == other.surfaceDetail
                 && regionalDetail == other.regionalDetail
                 && localDetail == other.localDetail
-                && microDetail == other.microDetail;
+                && microDetail == other.microDetail
+                && regionalLandforms == other.regionalLandforms;
         }
 
         /// <summary>True when the surface detail settings (V0.2.0C) are identical.</summary>
         public bool SurfaceDetailEquals(PlanetDefinition other)
         {
             return other != null && surfaceDetail == other.surfaceDetail && regionalDetail == other.regionalDetail
-                && localDetail == other.localDetail && microDetail == other.microDetail && radiusKilometers == other.radiusKilometers;
+                && localDetail == other.localDetail && microDetail == other.microDetail && radiusKilometers == other.radiusKilometers
+                && regionalLandforms == other.regionalLandforms;
         }
 
         /// <summary>Clamps every parameter into its documented range.</summary>
@@ -214,6 +225,7 @@ namespace Planetwalker.Core
             regionalDetail = Mathf.Clamp(regionalDetail, 0f, MaxSurfaceDetailLevel);
             localDetail = Mathf.Clamp(localDetail, 0f, MaxSurfaceDetailLevel);
             microDetail = Mathf.Clamp(microDetail, 0f, MaxSurfaceDetailLevel);
+            regionalLandforms = Mathf.Clamp(regionalLandforms, 0f, MaxSurfaceDetailLevel);
         }
     }
 }

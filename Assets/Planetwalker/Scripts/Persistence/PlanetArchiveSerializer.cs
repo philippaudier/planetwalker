@@ -27,13 +27,17 @@ namespace Planetwalker.Persistence
         /// <summary>
         /// Generator versions whose archives the current generator reproduces exactly: the current one and earlier
         /// versions with identical procedural algorithms and defaults. V0.1.3B only added the World Library;
-        /// V0.2.0C added the surface detail, which <see cref="ApplyCompatibilityDefaults"/> turns off for archives
-        /// that predate it, so their terrain stays bit-identical.
+        /// V0.2.0C added the surface detail and V0.2.0G.1 the regional landforms, which
+        /// <see cref="ApplyCompatibilityDefaults"/> turns off for archives that predate them, so their terrain stays
+        /// bit-identical.
         /// </summary>
-        static readonly string[] ExactGeneratorVersions = { PlanetArchive.CurrentGeneratorVersion, "Genesis V0.1.3A", "Genesis V0.1.3B" };
+        static readonly string[] ExactGeneratorVersions = { PlanetArchive.CurrentGeneratorVersion, "Genesis V0.2.0C", "Genesis V0.1.3A", "Genesis V0.1.3B" };
 
         /// <summary>The terrain member whose absence marks an archive written before V0.2.0C.</summary>
         const string SurfaceDetailField = "terrain.surfaceDetail";
+
+        /// <summary>The terrain member whose absence marks an archive written before V0.2.0G.1.</summary>
+        const string RegionalLandformsField = "terrain.regionalLandforms";
 
         /// <summary>
         /// Fields every archive before V0.2.0C lacks and whose defaults are a documented compatibility rule (the
@@ -42,6 +46,7 @@ namespace Planetwalker.Persistence
         public static readonly string[] CompatibilityDefaultFields =
         {
             "terrain.radiusKilometers", SurfaceDetailField, "terrain.regionalDetail", "terrain.localDetail", "terrain.microDetail",
+            RegionalLandformsField,
         };
 
         public static bool IsCompatibilityDefault(string field) => System.Array.IndexOf(CompatibilityDefaultFields, field) >= 0;
@@ -334,6 +339,8 @@ namespace Planetwalker.Persistence
         /// <item><c>terrain.surfaceDetail</c> absent (every archive before V0.2.0C): surface detail off. New
         /// worlds start detailed (the C# default is true), but an older world must never silently gain detail;
         /// with it off the terrain is bit-identical to what V0.1.3A / V0.1.3B generated.</item>
+        /// <item><c>terrain.regionalLandforms</c> absent (every archive before V0.2.0G.1): landforms off (0). With it
+        /// off the terrain is bit-identical to what V0.2.0C - V0.2.0F.3 generated.</item>
         /// </list>
         /// </summary>
         public static void ApplyCompatibilityDefaults(WorldConfiguration configuration, ArchiveReport report)
@@ -343,7 +350,10 @@ namespace Planetwalker.Persistence
                 if (field == SurfaceDetailField)
                 {
                     configuration.Terrain.surfaceDetail = false;
-                    return;
+                }
+                else if (field == RegionalLandformsField)
+                {
+                    configuration.Terrain.regionalLandforms = 0f;
                 }
             }
         }

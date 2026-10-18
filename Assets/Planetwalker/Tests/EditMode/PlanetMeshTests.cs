@@ -107,7 +107,9 @@ namespace Planetwalker.Tests
         [Test]
         public void Vertices_MatchElevationFunction()
         {
-            var planet = new PlanetInstance(new PlanetDefinition { resolution = Resolution });
+            // The planetary terrain with its detail bands (no V0.2.0G.1 landforms): within the band-limit tolerance of the
+            // canonical function.
+            var planet = new PlanetInstance(new PlanetDefinition { resolution = Resolution, regionalLandforms = 0f });
             Mesh[] faces = BuildAllFaces(planet);
             for (int face = 0; face < faces.Length; face++)
             {
@@ -116,6 +118,19 @@ namespace Planetwalker.Tests
                 {
                     Vector3 direction = vertices[i].normalized;
                     Assert.AreEqual(planet.GetSurfaceRadius(direction), vertices[i].magnitude, planet.Radius * 1e-4f);
+                }
+            }
+            // With landforms (the default): plateaus are band-limited away at this coarse spacing, so the face mesh is the
+            // legacy elevation function it samples, exactly.
+            var landforms = new PlanetInstance(new PlanetDefinition { resolution = Resolution });
+            Mesh[] withLandforms = BuildAllFaces(landforms);
+            for (int face = 0; face < withLandforms.Length; face++)
+            {
+                Vector3[] vertices = withLandforms[face].vertices;
+                for (int i = 0; i < vertices.Length; i += 37)
+                {
+                    Vector3 direction = vertices[i].normalized;
+                    Assert.AreEqual(landforms.Radius * (1f + landforms.GetLegacyElevation(direction)), vertices[i].magnitude, landforms.Radius * 1e-5f);
                 }
             }
         }

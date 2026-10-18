@@ -18,13 +18,19 @@ namespace Planetwalker.Generation
         public float Influence;
         /// <summary>Cross-range stretch vector of the ridges (zero outside ranges).</summary>
         public Vector3 Anisotropy;
+        /// <summary>The V0.1 detail layer's part of e0 (fraction of the radius): its broad undulations (V0.2.0G.1, read by the plateaus).</summary>
+        public float Undulation;
     }
 
     /// <summary>Contribution of each detail band at a direction (fraction of the radius), for diagnostics.</summary>
     public struct TerrainDetailSample
     {
         public float Regional, Local, Micro;
-        public float Total => Regional + Local + Micro;
+        /// <summary>Regional landform displacement of the planetary terrain (V0.2.0G.1; 0 without landforms).</summary>
+        public float Landform;
+        /// <summary>The landform influence weights and shape terms at the direction (V0.2.0G.1).</summary>
+        public LandformSample Landforms;
+        public float Total => Landform + Regional + Local + Micro;
     }
 
     /// <summary>The three detail bands of V0.2.0C, by physical wavelength.</summary>
@@ -296,9 +302,10 @@ namespace Planetwalker.Generation
         readonly int[] octaveSeeds;
         readonly float[] coastBand = new float[3];
 
-        public TerrainDetail(TerrainDetailProfile profile, TerrainReliefField relief, int seed, float seaLevel)
+        public TerrainDetail(TerrainDetailProfile profile, TerrainReliefField relief, int seed, float seaLevel, RegionalLandforms landforms = null)
         {
             Profile = profile;
+            Landforms = landforms;
             Relief = relief;
             SeaLevel = seaLevel;
             characterSeed = PlanetNoise.DeriveSeed(seed, CharacterStream);
@@ -316,6 +323,20 @@ namespace Planetwalker.Generation
         public TerrainDetailProfile Profile { get; }
         public TerrainReliefField Relief { get; }
         public float SeaLevel { get; }
+
+        /// <summary>Regional landforms (V0.2.0G.1), or null when off (the detail is then exactly V0.2.0F.3's).</summary>
+        public RegionalLandforms Landforms { get; }
+
+        /// <summary>
+        /// Displacement a sample spacing (radians) cannot resolve, all layers (fraction of the radius): the octaves'
+        /// <see cref="TerrainDetailProfile.UnresolvedAmplitude"/> plus the landform valleys narrower than the spacing
+        /// (the aliasing error of a mesh with that spacing).
+        /// </summary>
+        public float UnresolvedAmplitude(float spacing)
+        {
+            float sum = Profile.UnresolvedAmplitude(spacing);
+            return Landforms != null ? sum + Landforms.UnresolvedValleyDepth(spacing) : sum;
+        }
 
         /// <summary>
         /// Terrain character at a direction (V0.2.0E, read by the surface geology): the seeded planet-scale field of
@@ -349,11 +370,35 @@ namespace Planetwalker.Generation
         /// </summary>
         public void Evaluate(Vector3d precise, Vector3 direction, in TerrainBaseSample context, float spacing, out TerrainDetailSample sample)
         {
+            Evaluate(precise, direction, context, spacing, spacing, out sample);
+        }
+
+        /// <summary>
+        /// Detail per band with the landforms band-limited to their own spacing (V0.2.0G.1): the relief bounds sample the
+        /// octaves at their grid spacing but the landforms complete (0), since the patches they bound sample everything.
+        /// </summary>
+        public void Evaluate(Vector3d precise, Vector3 direction, in TerrainBaseSample context, float spacing, float landformSpacing, out TerrainDetailSample sample)
+        {
             sample = default;
             float h = context.Elevation - SeaLevel;
-            if (h <= 0f || Profile.OctaveCount == 0)
+            if (h <= 0f)
             {
                 return; // nothing at or under the sea
+            }
+            // Regional landforms (V0.2.0G.1) first: the bands below read the reshaped height (calm coastal plains) and
+            // are calmed on valley floors and plateau tops, dissected on escarpments.
+            float calm = 0f, edge = 0f;
+            if (Landforms != null)
+            {
+                Landforms.Evaluate(precise, direction, context, landformSpacing, out sample.Landforms);
+                sample.Landform = sample.Landforms.Displacement;
+                h += sample.Landform;
+                calm = sample.Landforms.Calm;
+                edge = sample.Landforms.Edge;
+            }
+            if (Profile.OctaveCount == 0)
+            {
+                return;
             }
             TerrainDetailProfile profile = Profile;
             float m = context.Influence;
@@ -369,7 +414,13 @@ namespace Planetwalker.Generation
             float boostMicro = 1f + 0.5f * core;
             float maskRegional = SmoothStep(0f, coastBand[0], h) * dissection * boostRegional;
             float maskLocal = SmoothStep(0f, coastBand[1], h) * dissection * boostRegional * Mathf.Lerp(1f, 0.45f, smooth) * Mathf.Lerp(1f, 1.3f, rugged);
+            if (calm > 0f || edge > 0f)
+            {
+                maskRegional *= 1f - 0.75f * calm;
+                maskLocal *= (1f - 0.7f * calm) * (1f + 1.2f * edge);
+            }
             float maskMicro = SmoothStep(0f, coastBand[2], h) * Mathf.Lerp(0.6f, 1f, dissection) * boostMicro * Mathf.Lerp(1f, 0.35f, smooth) * Mathf.Lerp(1f, 1.3f, rugged);
+            maskMicro *= 1f - 0.5f * calm; // valley floors and plateau tops: smoother ground (0 without landforms)
             if (maskRegional <= 0f && maskLocal <= 0f && maskMicro <= 0f)
             {
                 return;
