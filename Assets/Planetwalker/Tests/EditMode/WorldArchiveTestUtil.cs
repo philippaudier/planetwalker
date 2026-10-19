@@ -220,6 +220,7 @@ namespace Planetwalker.Tests
             r.minDisplayLength = 0.1f;
             r.sourceTaperLength = 0.04f;
             r.color = new Color(0.2f, 0.4f, 0.6f, 0.9f);
+            r.placement = RiverSettings.PlacementLegacy;
 
             LakeSettings l = c.Lakes;
             l.showLakes = flipFlags;

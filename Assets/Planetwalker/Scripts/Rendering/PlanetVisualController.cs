@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Planetwalker.Core;
 using Planetwalker.Generation;
+using Planetwalker.Terrain;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -91,6 +92,14 @@ namespace Planetwalker.Rendering
         readonly RiverNetworkCache riverCache = new RiverNetworkCache();
         readonly RiverRibbonBuilder ribbonBuilder = new RiverRibbonBuilder();
         readonly PlanetSurfaceSampler surfaceSampler = new PlanetSurfaceSampler();
+        // Canonical river surface (V0.2.0G.2D): the spine placed on the drawn terrain, by level, in the background.
+        readonly RiverSurface riverSurface = new RiverSurface();
+        RiverCorridorMap corridorMap;
+        RiverNetwork corridorNetwork;
+        PlanetInstance corridorPlanet;
+        PlanetRenderFrame riverFrame;
+        AdaptiveTerrainRenderer riverTerrain;
+        readonly Plane[] riverFrustum = new Plane[6];
         Mesh riverMesh;
         Material ownedRiverMaterial;
         MaterialPropertyBlock riverProperties;
@@ -146,11 +155,13 @@ namespace Planetwalker.Rendering
             public float WidthMultiplier, ReferenceWidth, ReferenceArea, WidthExponent, MinWidth, MaxWidth, MinDisplayLength, TaperLength;
             /// <summary>Lake-aware layer used for the ribbons (null: lakes not shown).</summary>
             public LakeRiverLayer Lakes;
+            /// <summary>Placement model (V0.2.0G.2D).</summary>
+            public int Placement;
 
             public bool Equals(RibbonKey o)
             {
                 return Network == o.Network && NetworkBuild == o.NetworkBuild && PathBuild == o.PathBuild
-                    && TerrainVersion == o.TerrainVersion && Lakes == o.Lakes
+                    && TerrainVersion == o.TerrainVersion && Lakes == o.Lakes && Placement == o.Placement
                     && WidthMultiplier == o.WidthMultiplier && ReferenceWidth == o.ReferenceWidth
                     && ReferenceArea == o.ReferenceArea && WidthExponent == o.WidthExponent
                     && MinWidth == o.MinWidth && MaxWidth == o.MaxWidth
@@ -256,6 +267,21 @@ namespace Planetwalker.Rendering
         public RiverNetworkCache RiverCache => riverCache;
 
         public RiverRibbonBuilder RiverRibbons => ribbonBuilder;
+
+        /// <summary>The canonical river surface (V0.2.0G.2D), empty under the legacy placement.</summary>
+        public RiverSurface RiverSurface => riverSurface;
+
+        /// <summary>True when the rivers are placed on the drawn terrain (<see cref="RiverSettings.placement"/>).</summary>
+        public bool CanonicalRivers => rivers.placement == RiverSettings.PlacementCanonical;
+
+        /// <summary>Minimum lift of the canonical river surface above the terrain (meters): z-fighting only.</summary>
+        public const double CanonicalMinLiftMeters = 1.0;
+
+        /// <summary>Lift per camera distance of the canonical river surface (about two pixels at the LOD tolerance).</summary>
+        public const float CanonicalLiftPerDistance = 0.002f;
+
+        /// <summary>Main-thread time of the last river surface tick (selection, assembly, uploads).</summary>
+        public double RiverSurfaceTickMilliseconds { get; private set; }
 
         /// <summary>Number of ribbon mesh builds (render-only changes increment this alone).</summary>
         public int RiverRibbonBuildCount { get; private set; }
@@ -459,8 +485,56 @@ namespace Planetwalker.Rendering
 
         void LateUpdate()
         {
+            TickRiverSurface(ResolveRiverViewCamera());
             SubmitPresentationDraws(null);
             DrawWindArrows();
+        }
+
+        Camera ResolveRiverViewCamera()
+        {
+            riverTerrain ??= GetComponent<AdaptiveTerrainRenderer>();
+            return riverTerrain != null && riverTerrain.ViewCamera != null ? riverTerrain.ViewCamera : Camera.main;
+        }
+
+        /// <summary>
+        /// One river surface step for a camera (V0.2.0G.2D): the view in planet space (camera through the render frame,
+        /// altitude above the ground under it, the terrain's screen-error tolerance), then selection, background builds
+        /// and mesh uploads. Nothing happens under the legacy placement.
+        /// </summary>
+        public void TickRiverSurface(Camera camera) => TickRiverSurface(camera, false);
+
+        /// <param name="complete">Tests and capture harnesses: build every piece the view wants on the calling thread
+        /// and assemble everything before returning (nothing pending).</param>
+        public void TickRiverSurface(Camera camera, bool complete)
+        {
+            if (!riverSurface.HasSurface || !RiversVisible || camera == null || Planet == null)
+            {
+                return;
+            }
+            long start = System.Diagnostics.Stopwatch.GetTimestamp();
+            riverFrame ??= GetComponent<PlanetRenderFrame>();
+            riverTerrain ??= GetComponent<AdaptiveTerrainRenderer>();
+            Vector3d cameraPosition = riverFrame != null ? riverFrame.RenderToPlanet(camera.transform.position)
+                : new Vector3d(transform.InverseTransformPoint(camera.transform.position));
+            double cameraDistance = cameraPosition.Magnitude;
+            Vector3 down = cameraDistance > 0.0 ? (cameraPosition / cameraDistance).ToVector3() : Vector3.up;
+            float groundRadius = Planet.Radius * (1f + Mathf.Max(Planet.Height.GetElevation(down), Planet.SeaLevel));
+            float altitude = Mathf.Max((float)cameraDistance - groundRadius, Planet.Radius * 1e-6f);
+            float pixelsPerRadian = Mathf.Max(1, camera.pixelHeight) / (camera.fieldOfView * Mathf.Deg2Rad);
+            AdaptiveTerrainSettings lod = riverTerrain != null ? riverTerrain.Settings : null;
+            var view = new RiverSurfaceView(cameraPosition, altitude, pixelsPerRadian,
+                lod != null ? lod.maxScreenError : 4f, lod != null ? lod.offscreenErrorScale : 0.25f);
+            GeometryUtility.CalculateFrustumPlanes(camera.projectionMatrix * camera.worldToCameraMatrix * transform.localToWorldMatrix, riverFrustum);
+            view.Frustum = riverFrustum;
+            if (complete)
+            {
+                riverSurface.CompleteSynchronously(view);
+            }
+            else
+            {
+                riverSurface.Tick(view);
+            }
+            RiverSurfaceTickMilliseconds = (System.Diagnostics.Stopwatch.GetTimestamp() - start) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
         }
 
         /// <summary>
@@ -478,7 +552,12 @@ namespace Planetwalker.Rendering
 
         void DrawRivers(Camera target)
         {
-            if (!RiversVisible || riverMesh == null || riverMesh.vertexCount == 0)
+            if (!RiversVisible)
+            {
+                return;
+            }
+            bool canonical = riverSurface.HasSurface;
+            if (!canonical && (riverMesh == null || riverMesh.vertexCount == 0))
             {
                 return;
             }
@@ -486,10 +565,15 @@ namespace Planetwalker.Rendering
             riverProperties ??= new MaterialPropertyBlock();
             riverProperties.SetColor("_Color", rivers.color);
             riverProperties.SetFloat("_MinPixelHalfWidth", rivers.minPixelHalfWidth);
-            riverProperties.SetFloat("_MinLift", Planet.Radius * 0.0002f);
-            riverProperties.SetFloat("_LiftPerDistance", 0.0004f);
+            // Legacy placement: the lift hides the legacy mesh's distance to the drawn terrain. Canonical placement
+            // (V0.2.0G.2D): the surface already lies on that terrain; a meter against z-fighting, two pixels with distance.
+            riverProperties.SetFloat("_MinLift", canonical ? Planet.Radius * (float)(CanonicalMinLiftMeters / Planet.Scale.RadiusMeters) : Planet.Radius * 0.0002f);
+            riverProperties.SetFloat("_LiftPerDistance", canonical ? CanonicalLiftPerDistance : 0.0004f);
             riverProperties.SetFloat("_OceanRadius", Planet.OceanRadius);
             riverProperties.SetColor("_MouthColor", MouthColor());
+            riverProperties.SetFloat("_Diagnostic", debugView == PlanetDebugView.RiverAlignment ? 1f : 0f);
+            riverProperties.SetVector("_PieceOrigin", Vector4.zero);
+            riverProperties.SetFloat("_UseMask", 0f);
             var renderParams = new RenderParams(ResolveRiverMaterial())
             {
                 camera = target,
@@ -499,7 +583,40 @@ namespace Planetwalker.Rendering
                 receiveShadows = false,
                 worldBounds = new Bounds(transform.position, Vector3.one * (BoundingRadius * 2.4f * transform.lossyScale.x)),
             };
-            Graphics.RenderMesh(renderParams, riverMesh, 0, transform.localToWorldMatrix);
+            if (!canonical)
+            {
+                Graphics.RenderMesh(renderParams, riverMesh, 0, transform.localToWorldMatrix);
+                return;
+            }
+            if (riverSurface.FarMesh != null && riverSurface.FarMesh.vertexCount > 0 && riverSurface.FarMask != null)
+            {
+                // Every piece at level 0; the mask hides those drawn finer by the mid mesh or a near piece.
+                riverProperties.SetTexture("_PieceMask", riverSurface.FarMask);
+                riverProperties.SetVector("_PieceMaskSize", new Vector4(riverSurface.FarMask.width, riverSurface.FarMask.height, 0f, 0f));
+                riverProperties.SetFloat("_UseMask", 1f);
+                Graphics.RenderMesh(renderParams, riverSurface.FarMesh, 0, transform.localToWorldMatrix);
+                riverProperties.SetFloat("_UseMask", 0f);
+            }
+            if (riverSurface.MidMesh != null && riverSurface.MidMesh.vertexCount > 0)
+            {
+                Graphics.RenderMesh(renderParams, riverSurface.MidMesh, 0, transform.localToWorldMatrix);
+            }
+            // Near pieces: vertices relative to a local origin, drawn through the floating-origin patch matrix (the
+            // same matrix path as the adaptive terrain, so both coincide exactly at any rebase).
+            riverFrame ??= GetComponent<PlanetRenderFrame>();
+            float scale = Mathf.Abs(transform.lossyScale.x);
+            for (int i = 0; i < riverSurface.NearCount; i++)
+            {
+                riverSurface.GetNear(i, out Mesh mesh, out Vector3 origin, out Bounds local);
+                if (mesh == null || mesh.vertexCount == 0)
+                {
+                    continue;
+                }
+                Matrix4x4 matrix = riverFrame != null ? riverFrame.PatchMatrix(origin) : transform.localToWorldMatrix * Matrix4x4.Translate(origin);
+                riverProperties.SetVector("_PieceOrigin", origin);
+                renderParams.worldBounds = new Bounds(matrix.MultiplyPoint3x4(local.center), Vector3.one * (2f * local.extents.magnitude * scale + 1f));
+                Graphics.RenderMesh(renderParams, mesh, 0, matrix);
+            }
         }
 
         /// <summary>
@@ -619,6 +736,7 @@ namespace Planetwalker.Rendering
         }
 
         bool RiversNeeded => (debugView == PlanetDebugView.None && rivers.showRivers) || debugView == PlanetDebugView.RiverNetwork
+            || debugView == PlanetDebugView.RiverAlignment
             || debugView == PlanetDebugView.LakeConnectivity || debugView == PlanetDebugView.LakeShoreline;
 
         /// <summary>Lake data is computed only for the lake views or when lakes are shown.</summary>
@@ -763,6 +881,20 @@ namespace Planetwalker.Rendering
             Graphics.RenderMesh(renderParams, lakeMesh, 0, transform.localToWorldMatrix);
         }
 
+        /// <summary>The carved corridor map of a network on the current planet (V0.2.0G.2D), built once per pair.</summary>
+        RiverCorridorMap EnsureCorridorMap(RiverNetwork network)
+        {
+            if (corridorMap == null || corridorNetwork != network || corridorPlanet != Planet)
+            {
+                TerrainDetail detail = Planet.Height.SurfaceDetail;
+                ValleyNetwork valleys = detail != null && detail.Landforms != null ? detail.Landforms.Valleys : null;
+                corridorMap = new RiverCorridorMap(network, valleys, Planet.Scale.RadiusMeters);
+                corridorNetwork = network;
+                corridorPlanet = Planet;
+            }
+            return corridorMap;
+        }
+
         RiverNetwork EnsureRiverNetwork()
         {
             rivers.Sanitize();
@@ -786,8 +918,9 @@ namespace Planetwalker.Rendering
             RiverNetwork network = EnsureRiverNetwork();
             // Ribbons are also drawn over the river network and lake connectivity debug views, so
             // that topology markers and the actual geometry can be checked together.
-            RiversVisible = rivers.showRivers && (debugView == PlanetDebugView.None || debugView == PlanetDebugView.RiverNetwork
-                || debugView == PlanetDebugView.LakeConnectivity || debugView == PlanetDebugView.LakeShoreline);
+            RiversVisible = (rivers.showRivers && (debugView == PlanetDebugView.None || debugView == PlanetDebugView.RiverNetwork
+                || debugView == PlanetDebugView.LakeConnectivity || debugView == PlanetDebugView.LakeShoreline))
+                || debugView == PlanetDebugView.RiverAlignment;
             // Lake-aware ribbons whenever lakes are shown (or inspected in the connectivity view).
             LakeRiverLayer layer = null;
             if (lakes.showLakes || debugView == PlanetDebugView.LakeConnectivity || debugView == PlanetDebugView.LakeShoreline)
@@ -816,6 +949,7 @@ namespace Planetwalker.Rendering
                     MinDisplayLength = rivers.minDisplayLength,
                     TaperLength = rivers.sourceTaperLength,
                     Lakes = layer,
+                    Placement = rivers.placement,
                 };
                 if (!key.Equals(builtRibbon))
                 {
@@ -825,7 +959,20 @@ namespace Planetwalker.Rendering
                         EnsureLakeGeometry(layer.Lakes);
                     }
                     riverMesh ??= new Mesh { hideFlags = HideFlags.DontSave };
-                    ribbonBuilder.Build(riverMesh, network, surfaceSampler, Planet, rivers, layer, layer != null ? lakeMeshBuilder : null);
+                    bool canonical = CanonicalRivers;
+                    ribbonBuilder.Build(riverMesh, network, surfaceSampler, Planet, rivers, layer, layer != null ? lakeMeshBuilder : null, !canonical);
+                    if (canonical)
+                    {
+                        // The spine placed on the drawn terrain (V0.2.0G.2D), built in the background from here on.
+                        riverTerrain ??= GetComponent<AdaptiveTerrainRenderer>();
+                        float slope = riverTerrain != null ? riverTerrain.Settings.assumedMaxSlope : 1f;
+                        int workers = riverTerrain != null ? riverTerrain.EffectiveWorkerCount : Mathf.Clamp(SystemInfo.processorCount - 2, 1, 4);
+                        riverSurface.Rebuild(Planet, network, ribbonBuilder, EnsureCorridorMap(network), slope, Mathf.Max(1, workers));
+                    }
+                    else
+                    {
+                        riverSurface.Clear();
+                    }
                     builtRibbon = key;
                     RiverRibbonBuildCount++;
                     changed = true;
@@ -1059,6 +1206,7 @@ namespace Planetwalker.Rendering
 
         void OnDestroy()
         {
+            riverSurface.Dispose();
             for (int face = 0; face < CubeSphereGenerator.FaceCount; face++)
             {
                 if (faceFilters[face] != null)

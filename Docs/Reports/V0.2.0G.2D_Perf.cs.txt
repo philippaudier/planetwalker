@@ -1,0 +1,156 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.Text;
+using System.Threading;
+using NUnit.Framework;
+using Planetwalker.Core;
+using Planetwalker.Generation;
+using Planetwalker.Persistence;
+using Planetwalker.Rendering;
+using UnityEngine;
+
+namespace Planetwalker.Tests
+{
+    /// <summary>G.2D performance: prepass (CPU and wall, 4 workers), piece builds per level, steady and moving ticks (main thread, allocations), memory.</summary>
+    public class G2DPerf
+    {
+        static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+
+        [Test]
+        public void Run()
+        {
+            var log = new StringBuilder();
+            var c = new WorldConfiguration();
+            c.Hydrology.riverNetworkThreshold = 1e-5f;
+            PlanetDefinition def = c.Terrain.Clone(); def.seed = 1337; def.surfaceDetail = true; def.regionalLandforms = 1f; def.erosionStrength = 1f; def.erosionModel = 1;
+            var planet = new PlanetInstance(def);
+            double R = planet.Scale.RadiusMeters;
+            var hydrology = new HydrologySystem().Compute(new HydrologyGrid(c.Hydrology.resolution), planet);
+            var system = new RiverNetworkSystem();
+            RiverNetwork network = system.Build(hydrology, c.Hydrology.riverNetworkThreshold);
+            system.BuildPaths(network, c.Rivers.SmoothingIterations);
+            var faces = new Mesh[CubeSphereGenerator.FaceCount];
+            var mb = new PlanetMeshBuilder();
+            for (int f = 0; f < faces.Length; f++) { faces[f] = new Mesh(); mb.BuildFace(faces[f], f, planet, PlanetColorRamp.CreateDefault()); }
+            var sampler = new PlanetSurfaceSampler();
+            sampler.Capture(faces, def.resolution);
+            var spine = new RiverRibbonBuilder();
+            var sw = Stopwatch.StartNew();
+            spine.BuildGeometry(network, sampler, planet, c.Rivers, null, null, false);
+            double spineMs = sw.Elapsed.TotalMilliseconds;
+            sw.Restart();
+            var legacy = new RiverRibbonBuilder();
+            legacy.BuildGeometry(network, sampler, planet, c.Rivers);
+            double legacyMs = sw.Elapsed.TotalMilliseconds;
+            sw.Restart();
+            var corridors = new RiverCorridorMap(network, planet.Height.SurfaceDetail.Landforms.Valleys, R);
+            double corridorMs = sw.Elapsed.TotalMilliseconds;
+            log.AppendLine(string.Format(Inv, "spine build (pass 1-2, main thread) {0:0} ms; legacy ribbon build (with geometry on the legacy mesh) {1:0} ms; corridor map {2:0} ms; {3} ribbons, {4} spine samples",
+                spineMs, legacyMs, corridorMs, spine.RibbonCount, spine.SpineSampleCount));
+
+            // Prepass: wall time with 4 workers (as the controller runs it) and its CPU sum.
+            var surface = new RiverSurface();
+            sw.Restart();
+            surface.Rebuild(planet, network, spine, corridors, 1f, 4);
+            double rebuildMs = sw.Elapsed.TotalMilliseconds;
+            var idle = new RiverSurfaceView(new Vector3d(0, 0, planet.Radius * 3f), planet.Radius * 2f, 1000f);
+            while (!surface.PrepassComplete) { surface.Tick(idle); Thread.Sleep(1); }
+            double prepassWall = sw.Elapsed.TotalMilliseconds;
+            log.AppendLine(string.Format(Inv, "Rebuild (main thread, queues the prepass) {0:0.0} ms; prepass wall {1:0} ms with 4 workers, CPU {2:0} ms ({3} pieces, {4:0.0} us per spine sample)",
+                rebuildMs, prepassWall, surface.Diagnostics.PrepassMilliseconds, surface.PieceCount, surface.Diagnostics.PrepassMilliseconds * 1000.0 / spine.SpineSampleCount));
+
+            // The far mesh after the prepass (one assembly).
+            sw.Restart();
+            surface.Tick(idle);
+            for (int i = 0; i < 12; i++) surface.Tick(idle);
+            log.AppendLine(string.Format(Inv, "first ticks after the prepass (far mesh assembly included): {0:0.0} ms total; far mesh {1} vertices", sw.Elapsed.TotalMilliseconds, surface.FarMesh != null ? surface.FarMesh.vertexCount : 0));
+
+            // Piece builds per level (synchronous, this thread), pieces around a gorge.
+            int gorge = -1; float best = -1f;
+            ValleyNetwork net = planet.Height.SurfaceDetail.Landforms.Valleys;
+            for (int i = 0; i < surface.SpineSampleCount; i++)
+            {
+                surface.GetSpineSample(i, out Vector3d d, out _, out float w, out _, out _);
+                if (w < 0.999f) continue;
+                if (net.Nearest(d, out ValleyNetwork.ChannelQuery q) && q.IncisionMeters > best) { best = q.IncisionMeters; gorge = i; }
+            }
+            int piece = 0;
+            for (int p = 0; p < surface.PieceCount; p++) if (surface.GetPieceFirstSample(p) == gorge) piece = p;
+            foreach (int level in new[] { 1, 3, 5, 7, 9, 11 })
+            {
+                int count = level >= 9 ? 4 : 12;
+                sw.Restart();
+                long samples = 0;
+                for (int k = 0; k < count; k++) { RiverSurface.PieceData d = surface.BuildPiece(Math.Max(0, piece - 6 + k), level); samples += d.Count; }
+                double ms = sw.Elapsed.TotalMilliseconds;
+                log.AppendLine(string.Format(Inv, "piece build level {0} (step {1:0} m): {2:0.00} ms per piece, {3:0.0} us per sample ({4} pieces)", level, surface.GetLevelStep(level) * R, ms / count, ms * 1000.0 / samples, count));
+            }
+
+            // Steady ground view: complete, then tick with nothing to do (selection slices, diagnostics).
+            surface.GetSpineSample(gorge, out Vector3d dir, out _, out _, out _, out _);
+            float ground = planet.Radius * (1f + Mathf.Max(planet.Height.GetElevation(dir), planet.SeaLevel));
+            float alt = (float)(100.0 / R) * planet.Radius;
+            var view = new RiverSurfaceView(dir * (ground + alt), alt, 1080f / (60f * Mathf.Deg2Rad));
+            sw.Restart();
+            surface.CompleteSynchronously(view);
+            double completeMs = sw.Elapsed.TotalMilliseconds;
+            RiverSurfaceDiagnostics dg = surface.Diagnostics;
+            log.AppendLine(string.Format(Inv, "ground view complete (synchronous, parallel builds): {0:0} ms; displayed samples {1} (far {2} mid {3} near {4}), budget scale {5:0.00}, cache {6} pieces {7:0.0} MB, piece build CPU total {8:0} ms over {9} builds",
+                completeMs, dg.DisplayedSamples, dg.FarPieces, dg.MidPieces, dg.NearPieces, dg.BudgetScale, dg.CachedPieces, dg.CacheBytes / 1048576.0, dg.PieceBuildMilliseconds, dg.CompletedBuilds));
+            GC.Collect();
+            long alloc0 = GC.GetAllocatedBytesForCurrentThread();
+            double maxTick = 0, sumTick = 0;
+            for (int i = 0; i < 240; i++)
+            {
+                sw.Restart();
+                surface.Tick(view);
+                double t = sw.Elapsed.TotalMilliseconds;
+                maxTick = Math.Max(maxTick, t); sumTick += t;
+            }
+            long alloc1 = GC.GetAllocatedBytesForCurrentThread();
+            log.AppendLine(string.Format(Inv, "steady ticks at ground (240): mean {0:0.000} ms, max {1:0.00} ms, allocated {2} bytes per tick", sumTick / 240, maxTick, (alloc1 - alloc0) / 240));
+
+            // Moving camera: 10 m per tick along the flow for 240 ticks (builds queued in the background: 4 workers).
+            Vector3d flow = net.Nearest(dir, out ValleyNetwork.ChannelQuery qq) ? qq.Flow : Vector3d.Right;
+            flow = (flow - dir * Vector3d.Dot(flow, dir)).Normalized;
+            maxTick = 0; sumTick = 0; int builds0 = surface.Diagnostics.CompletedBuilds; int uploads0 = surface.Diagnostics.Uploads; int groups0 = surface.Diagnostics.GroupRebuilds;
+            double maxAssemble = 0;
+            alloc0 = GC.GetAllocatedBytesForCurrentThread();
+            for (int i = 0; i < 240; i++)
+            {
+                Vector3d d = (dir + flow * (i * 10.0 / R)).Normalized;
+                float g = planet.Radius * (1f + Mathf.Max(planet.Height.GetElevation(d), planet.SeaLevel));
+                var v = new RiverSurfaceView(d * (g + alt), alt, view.PixelsPerRadian);
+                sw.Restart();
+                surface.Tick(v);
+                double t = sw.Elapsed.TotalMilliseconds;
+                maxTick = Math.Max(maxTick, t); sumTick += t;
+                maxAssemble = Math.Max(maxAssemble, surface.Diagnostics.AssembleMilliseconds);
+                Thread.Sleep(4);
+            }
+            alloc1 = GC.GetAllocatedBytesForCurrentThread();
+            RiverSurfaceDiagnostics dm = surface.Diagnostics;
+            log.AppendLine(string.Format(Inv, "moving ticks at ground (240 x 10 m): mean {0:0.000} ms, max {1:0.00} ms (assembly max {2:0.00} ms), allocated {3} bytes per tick; builds {4}, near uploads {5}, group rebuilds {6}, pending at the end {7}, evictions {8}",
+                sumTick / 240, maxTick, maxAssemble, (alloc1 - alloc0) / 240, dm.CompletedBuilds - builds0, dm.Uploads - uploads0, dm.GroupRebuilds - groups0, dm.PendingBuilds, dm.Evictions));
+
+            // Orbit view ticks (2 000 km).
+            float orbit = (float)(2.0e6 / R) * planet.Radius;
+            var high = new RiverSurfaceView(dir * (planet.Radius + orbit), orbit, view.PixelsPerRadian);
+            sw.Restart();
+            surface.CompleteSynchronously(high);
+            RiverSurfaceDiagnostics dh = surface.Diagnostics;
+            log.AppendLine(string.Format(Inv, "orbit view complete: {0:0} ms; displayed samples {1} (far {2} mid {3} near {4}), far mesh {5} vertices, mid mesh {6} vertices, cache {7:0.0} MB",
+                sw.Elapsed.TotalMilliseconds, dh.DisplayedSamples, dh.FarPieces, dh.MidPieces, dh.NearPieces, surface.FarMesh.vertexCount, surface.MidMesh != null ? surface.MidMesh.vertexCount : 0, dh.CacheBytes / 1048576.0));
+            maxTick = 0; sumTick = 0;
+            for (int i = 0; i < 120; i++) { sw.Restart(); surface.Tick(high); double t = sw.Elapsed.TotalMilliseconds; maxTick = Math.Max(maxTick, t); sumTick += t; }
+            log.AppendLine(string.Format(Inv, "steady ticks in orbit (120): mean {0:0.000} ms, max {1:0.00} ms", sumTick / 120, maxTick));
+
+            surface.Dispose();
+            foreach (Mesh m in faces) UnityEngine.Object.DestroyImmediate(m);
+            System.IO.File.WriteAllText(@"C:\Users\Philippe\AppData\Local\Temp\claude\C--Users-Philippe-Documents-Programming-Unity-Projects-planetwalker\92a57fea-0dca-4c6f-a05a-b46236670522\scratchpad\g2dperf.txt", log.ToString());
+            UnityEngine.Debug.Log("PERF\n" + log);
+        }
+    }
+}

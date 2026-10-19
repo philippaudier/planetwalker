@@ -1,0 +1,14 @@
+spine build (pass 1-2, main thread) 175 ms; legacy ribbon build (with geometry on the legacy mesh) 845 ms; corridor map 9 ms; 6452 ribbons, 99195 spine samples
+Rebuild (main thread, queues the prepass) 40.4 ms; prepass wall 577 ms with 4 workers, CPU 1540 ms (92817 pieces, 15.5 us per spine sample)
+first ticks after the prepass (far mesh assembly included): 3.3 ms total; far mesh 371268 vertices
+piece build level 1 (step 19546 m): 0.09 ms per piece, 31.2 us per sample (12 pieces)
+piece build level 3 (step 4886 m): 0.16 ms per piece, 17.9 us per sample (12 pieces)
+piece build level 5 (step 1222 m): 0.65 ms per piece, 19.6 us per sample (12 pieces)
+piece build level 7 (step 305 m): 2.57 ms per piece, 19.9 us per sample (12 pieces)
+piece build level 9 (step 76 m): 9.63 ms per piece, 18.8 us per sample (4 pieces)
+piece build level 11 (step 19 m): 27.73 ms per piece, 13.5 us per sample (4 pieces)
+ground view complete (synchronous, parallel builds): 577 ms; displayed samples 150063 (far 88459 mid 3971 near 387), budget scale 4.77, cache 4358 pieces 6.2 MB, piece build CPU total 2595 ms over 4358 builds
+steady ticks at ground (240): mean 0.439 ms, max 2.50 ms, allocated 0 bytes per tick
+moving ticks at ground (240 x 10 m): mean 2.924 ms, max 9.51 ms (assembly max 7.21 ms), allocated 0 bytes per tick; builds 5, near uploads 7, group rebuilds 10, pending at the end 0, evictions 0
+orbit view complete: 65 ms; displayed samples 99093 (far 87989 mid 4828 near 0), far mesh 371268 vertices, mid mesh 31864 vertices, cache 7.9 MB
+steady ticks in orbit (120): mean 0.649 ms, max 2.51 ms

@@ -16,6 +16,11 @@ Shader "Planetwalker/PlanetRiver"
         _OceanRadius ("Ocean Radius (object space)", Float) = 0
         _MouthColor ("Lake Mouth Color", Color) = (0.1, 0.27, 0.34, 1)
         _MouthBlend ("Lake Mouth Blend", Range(0, 1)) = 0.6
+        _PieceOrigin ("Piece Origin (object space)", Vector) = (0, 0, 0, 0)
+        _Diagnostic ("Diagnostic Coloring", Float) = 0
+        _PieceMask ("Piece Mask (far mesh)", 2D) = "black" {}
+        _PieceMaskSize ("Piece Mask Size", Vector) = (512, 1, 0, 0)
+        _UseMask ("Use Piece Mask", Float) = 0
     }
 
     SubShader
@@ -52,14 +57,21 @@ Shader "Planetwalker/PlanetRiver"
                 float _OceanRadius;
                 half4 _MouthColor;
                 half _MouthBlend;
+                float4 _PieceOrigin;
+                float _Diagnostic;
+                float4 _PieceMaskSize;
+                float _UseMask;
             CBUFFER_END
+            TEXTURE2D(_PieceMask);
+            SAMPLER(sampler_PieceMask);
 
             struct Attributes
             {
                 float4 positionOS : POSITION;
                 float3 normalOS : NORMAL;
                 float4 side : TEXCOORD0;      // xyz: side direction (object space), w: +1 / -1
-                float3 width : TEXCOORD1;     // x: half width (object units), y: lake water radius (object units) or 0, z: lake mouth blend
+                float4 width : TEXCOORD1;     // x: half width (object units), y: lake water radius (object units) or 0, z: lake mouth blend, w: diagnostic value
+                float2 piece : TEXCOORD2;     // x: piece index in the far mesh (V0.2.0G.2D), read against the piece mask
             };
 
             struct Varyings
@@ -68,11 +80,27 @@ Shader "Planetwalker/PlanetRiver"
                 float3 positionWS : TEXCOORD0;
                 float3 normalWS : TEXCOORD1;
                 float mouth : TEXCOORD2;
+                float diagnostic : TEXCOORD3;
             };
 
             Varyings Vert(Attributes input)
             {
                 Varyings output;
+                if (_UseMask > 0.5)
+                {
+                    // Far mesh (V0.2.0G.2D): a piece drawn at a finer level elsewhere is hidden here (collapsed, clipped).
+                    float index = input.piece.x;
+                    float2 uv = (float2(fmod(index, _PieceMaskSize.x) + 0.5, floor(index / _PieceMaskSize.x) + 0.5)) / _PieceMaskSize.xy;
+                    if (SAMPLE_TEXTURE2D_LOD(_PieceMask, sampler_PieceMask, uv, 0).r > 0.5)
+                    {
+                        output.positionCS = float4(0, 0, 2, 0);
+                        output.positionWS = 0;
+                        output.normalWS = float3(0, 1, 0);
+                        output.mouth = 0;
+                        output.diagnostic = 0;
+                        return output;
+                    }
+                }
                 float3 positionWS = TransformObjectToWorld(input.positionOS.xyz);
                 float3 normalWS = TransformObjectToWorldNormal(input.normalOS);
                 float3 sideWS = normalize(TransformObjectToWorldDir(input.side.xyz));
@@ -86,7 +114,8 @@ Shader "Planetwalker/PlanetRiver"
                 // Parts under the ocean are not lifted: a river mouth ends under the water surface
                 // instead of floating above it. Near a lake the lift never raises a vertex above the
                 // lake's water radius, so the ribbon dives under the lake exactly where the terrain does.
-                float radiusOS = length(input.positionOS.xyz);
+                // Near pieces (V0.2.0G.2D) carry vertices relative to a local origin (floating origin precision).
+                float radiusOS = length(input.positionOS.xyz + _PieceOrigin.xyz);
                 float lift = radiusOS <= _OceanRadius ? 0.0 : max(_MinLift, _LiftPerDistance * distanceToCamera);
                 if (input.width.y > 0.0)
                 {
@@ -98,6 +127,7 @@ Shader "Planetwalker/PlanetRiver"
                 output.normalWS = normalWS;
                 output.positionCS = TransformWorldToHClip(positionWS);
                 output.mouth = input.width.z;
+                output.diagnostic = input.width.w;
                 return output;
             }
 
@@ -113,6 +143,15 @@ Shader "Planetwalker/PlanetRiver"
                 // Near a lake mouth the river tint drifts towards the lake's shallow water color so the
                 // shoreline between the two materials does not draw attention.
                 half3 tint = lerp(_Color.rgb, _MouthColor.rgb, saturate(input.mouth) * _MouthBlend);
+                if (_Diagnostic > 0.5)
+                {
+                    // River alignment view: gray = legacy trajectory kept, blue .. red = on a carved axis, by the
+                    // horizontal offset the trajectory was moved (0 .. 40 km).
+                    float v = input.diagnostic;
+                    half3 heat = lerp(half3(0.1, 0.35, 1.0), half3(1.0, 0.15, 0.1), saturate(v - 1.0));
+                    tint = v < 0.5 ? half3(0.55, 0.55, 0.55) : heat;
+                    return half4(tint * (0.35 + 0.65 * ndl), 1.0);
+                }
                 half3 color = tint * (mainLight.color * ndl + ambient) + mainLight.color * sheen;
                 return half4(color, 1.0);
             }

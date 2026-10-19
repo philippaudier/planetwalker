@@ -18,12 +18,12 @@ namespace Planetwalker.UI
         {
             PlanetDebugView.SurfaceDetailCombined, PlanetDebugView.SurfaceDetailRegional, PlanetDebugView.SurfaceDetailLocal,
             PlanetDebugView.SurfaceDetailMicro, PlanetDebugView.LandformInfluence, PlanetDebugView.LandformDisplacement,
-            PlanetDebugView.LandformRelief, PlanetDebugView.ErosionDisplacement,
+            PlanetDebugView.LandformRelief, PlanetDebugView.ErosionDisplacement, PlanetDebugView.RiverAlignment,
         };
         static readonly string[] SurfaceDetailViewNames =
         {
             "View: Combined", "View: Regional", "View: Local", "View: Micro", "View: Landforms", "View: Landform Shift", "View: Relief (clay)",
-            "View: Erosion Shift (1.5 km)",
+            "View: Erosion Shift (1.5 km)", "View: River Offset (40 km)",
         };
 
         [SerializeField] Toggle surfaceDetailToggle;

@@ -58,7 +58,7 @@ namespace Planetwalker.Rendering
         /// <summary>Regional landform views (V0.2.0G.1).</summary>
         static Color Landform(PlanetHeightGenerator height, PlanetDebugView view, in TerrainDetailSample sample)
         {
-            if (view == PlanetDebugView.LandformRelief)
+            if (PlanetDebugViews.IsClay(view))
             {
                 return Clay;
             }

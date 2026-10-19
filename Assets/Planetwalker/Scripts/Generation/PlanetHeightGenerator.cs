@@ -425,6 +425,28 @@ namespace Planetwalker.Generation
             return e + sample.Total;
         }
 
+        /// <summary>
+        /// Elevation for a surface placed on the drawn terrain at a sample spacing (V0.2.0G.2D river surface): the detail
+        /// octaves band-limited to the spacing, the regional landforms and the incision complete (the patches draw them at
+        /// every LOD, aliased when coarse: a river must lie in its valley from any distance), at double precision. Below
+        /// <see cref="FineSpacing"/> this is the canonical evaluation (no landform is narrower than that spacing).
+        /// </summary>
+        public float GetSurfaceElevation(Vector3d direction, float sampleSpacing)
+        {
+            if (sampleSpacing == 0f || sampleSpacing < FineSpacing)
+            {
+                return GetElevation(direction, sampleSpacing);
+            }
+            Vector3 dir = direction.ToVector3();
+            float e = SampleBase(dir, out TerrainBaseSample context);
+            if (surfaceDetail == null)
+            {
+                return e;
+            }
+            surfaceDetail.Evaluate(direction, dir, context, sampleSpacing, 0f, out TerrainDetailSample sample);
+            return e + sample.Total;
+        }
+
         /// <summary>Base elevation and the detail of each band at a direction (diagnostics; zero bands without detail).</summary>
         public float SampleLayers(Vector3 normalizedDirection, out TerrainDetailSample detail)
         {

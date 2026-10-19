@@ -132,6 +132,14 @@ namespace Planetwalker.Rendering
         /// gray where zero; dark where the stage is off. Uniformly neutral on a V0.2.0G.2A world (model none).
         /// </summary>
         ErosionDisplacement,
+
+        /// <summary>
+        /// River alignment (V0.2.0G.2D): the terrain as uniform clay, the river ribbons colored by their placement:
+        /// gray where the legacy trajectory is kept (no carved corridor), blue to red on a carved axis by the horizontal
+        /// distance the trajectory was moved (0 .. 40 km). Distinguishes the drawn river geometry from the hydrological
+        /// reference it was snapped to.
+        /// </summary>
+        RiverAlignment,
     }
 
     public static class PlanetDebugViews
@@ -150,14 +158,21 @@ namespace Planetwalker.Rendering
         /// </summary>
         public static bool IsLit(PlanetDebugView view)
         {
-            return view == PlanetDebugView.None || view == PlanetDebugView.LandformRelief;
+            return view == PlanetDebugView.None || view == PlanetDebugView.LandformRelief || view == PlanetDebugView.RiverAlignment;
+        }
+
+        /// <summary>Views drawn as uniform clay over land (shape and sunlight only).</summary>
+        public static bool IsClay(PlanetDebugView view)
+        {
+            return view == PlanetDebugView.LandformRelief || view == PlanetDebugView.RiverAlignment;
         }
 
         /// <summary>The regional landform views (V0.2.0G.1), drawn like the surface detail views.</summary>
         public static bool IsLandform(PlanetDebugView view)
         {
             return view == PlanetDebugView.LandformInfluence || view == PlanetDebugView.LandformDisplacement
-                || view == PlanetDebugView.LandformRelief || view == PlanetDebugView.ErosionDisplacement;
+                || view == PlanetDebugView.LandformRelief || view == PlanetDebugView.ErosionDisplacement
+                || view == PlanetDebugView.RiverAlignment;
         }
 
         /// <summary>Views that need a hydrology analysis (hydrology, river and lake views).</summary>

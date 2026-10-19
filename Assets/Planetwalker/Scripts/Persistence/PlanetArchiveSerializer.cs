@@ -46,13 +46,20 @@ namespace Planetwalker.Persistence
         const string ErosionModelField = "terrain.erosionModel";
 
         /// <summary>
+        /// The rivers member absent before V0.2.0G.2D. Presentation only (the river ribbons' placement on the drawn
+        /// terrain), so an older archive simply gets the current default (canonical placement): its world data, terrain
+        /// and hydrology are untouched, and the legacy placement stays selectable.
+        /// </summary>
+        const string RiverPlacementField = "rivers.placement";
+
+        /// <summary>
         /// Fields every archive before V0.2.0C lacks and whose defaults are a documented compatibility rule (the
         /// terrain is bit-identical with them): not worth a "defaults used" warning when a world is loaded.
         /// </summary>
         public static readonly string[] CompatibilityDefaultFields =
         {
             "terrain.radiusKilometers", SurfaceDetailField, "terrain.regionalDetail", "terrain.localDetail", "terrain.microDetail",
-            RegionalLandformsField, ErosionField, ErosionModelField,
+            RegionalLandformsField, ErosionField, ErosionModelField, RiverPlacementField,
         };
 
         public static bool IsCompatibilityDefault(string field) => System.Array.IndexOf(CompatibilityDefaultFields, field) >= 0;

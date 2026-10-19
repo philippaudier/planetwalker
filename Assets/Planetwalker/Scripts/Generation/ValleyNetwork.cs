@@ -93,6 +93,8 @@ namespace Planetwalker.Generation
 
         readonly Segment[] segments;
         readonly float[] nodeIncision;
+        // Segments of a hydrology cell's channel node are [segmentStartOfCell[cell], segmentStartOfCell[cell + 1]) (V0.2.0G.2D).
+        readonly int[] segmentStartOfCell;
         readonly Dictionary<long, int[]> hash = new Dictionary<long, int[]>();
         readonly double radiusMeters;
         readonly int meanderSeedX, meanderSeedY, meanderSeedZ;
@@ -191,8 +193,10 @@ namespace Planetwalker.Generation
             nodeIncision = incision;
 
             var list = new List<Segment>();
+            segmentStartOfCell = new int[count + 1];
             for (int b = 0; b < count; b++)
             {
+                segmentStartOfCell[b] = list.Count;
                 if (!channel[b])
                 {
                     continue;
@@ -235,6 +239,7 @@ namespace Planetwalker.Generation
                 }
             }
             segments = list.ToArray();
+            segmentStartOfCell[count] = list.Count;
             double reach = (Math.Max(BroadHalfWidthMeters, IncisionBroadHalfWidthMeters) + MeanderMeters) / radiusMeters;
             var cellsOf = new Dictionary<long, List<int>>();
             for (int s = 0; s < segments.Length; s++)
@@ -277,6 +282,23 @@ namespace Planetwalker.Generation
         public float NodeIncision(int cell) => nodeIncision[cell];
         public Segment GetSegment(int index) => segments[index];
         public double BuildMilliseconds { get; }
+
+        /// <summary>
+        /// Segments carved for a hydrology cell's channel node (V0.2.0G.2D): one curve per upstream channel (or the head
+        /// start), each in <see cref="Subdivisions"/> chords, all ending at the same downstream point. Empty for a cell
+        /// without a channel. Segment ends live in meander space: see <see cref="Meander"/>.
+        /// </summary>
+        public void GetCellSegments(int cell, out int start, out int end)
+        {
+            start = segmentStartOfCell[cell];
+            end = segmentStartOfCell[cell + 1];
+        }
+
+        /// <summary>True when the hydrology cell carries a carved channel (a node of this network).</summary>
+        public bool IsChannel(int cell) => segmentStartOfCell[cell + 1] > segmentStartOfCell[cell];
+
+        /// <summary>Amplitude of the meander displacement (meters): the farthest a carved axis lies from its chord.</summary>
+        public static double MeanderAmplitudeMeters => MeanderMeters;
 
         /// <summary>Narrowest valley half width (meters): the band limit and LOD margin reference.</summary>
         public static double MinHalfWidthMeters => NarrowHalfWidthMeters * 0.6;
@@ -378,7 +400,12 @@ namespace Planetwalker.Generation
         }
 
         /// <summary>The query point displaced by the deterministic meander (the same for the valleys and the incision).</summary>
-        Vector3d Meander(Vector3d direction)
+        /// <summary>
+        /// The meander displacement: carving, incision and queries evaluate the segments at this displaced direction, so a
+        /// segment chord in "meander space" is a winding curve on the terrain. Smooth, a few kilometers, invertible by
+        /// fixed-point iteration (the displacement varies slowly against its own size): see RiverCorridorMap.
+        /// </summary>
+        public Vector3d Meander(Vector3d direction)
         {
             double f = meanderFrequency;
             var w = new Vector3d(

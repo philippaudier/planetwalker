@@ -67,6 +67,9 @@ namespace Planetwalker.UI
         [SerializeField] Text riverWidthValue;
         [SerializeField] Text riverSmoothingValue;
         [SerializeField] Text riverStatsText;
+        [SerializeField] Toggle riverPlacementToggle;
+        [SerializeField] Text riverSurfaceStatsText;
+        int riverSurfaceStatsFrame;
         [SerializeField] Toggle lakeToggle;
         [SerializeField] Button lakeViewButton;
         [SerializeField] Text lakeViewLabel;
@@ -304,7 +307,7 @@ namespace Planetwalker.UI
             if (seedField != null && distortionSlider != null && coastSlider != null
                 && rangeCoverageSlider != null && ruggednessSlider != null
                 && hydrologyToggle != null && hydrologyStatsText != null
-                && riverToggle != null && riverDensitySlider != null && riverStatsText != null
+                && riverToggle != null && riverDensitySlider != null && riverStatsText != null && riverPlacementToggle != null && riverSurfaceStatsText != null
                 && lakeToggle != null && lakeMinAreaSlider != null && lakeStatsText != null
                 && climateToggle != null && climateElevationSlider != null && climateStatsText != null
                 && panelScroll != null && panelContent != null && climateLegendBar != null && climateLegendTicks != null
@@ -355,6 +358,7 @@ namespace Planetwalker.UI
             riverDensitySlider.onValueChanged.AddListener(OnRiverSettingChanged);
             riverWidthSlider.onValueChanged.AddListener(OnRiverSettingChanged);
             riverSmoothingSlider.onValueChanged.AddListener(OnRiverSettingChanged);
+            riverPlacementToggle.onValueChanged.AddListener(OnRiverPlacementToggled);
             lakeToggle.onValueChanged.AddListener(OnLakeToggled);
             lakeViewButton.onClick.AddListener(OnLakeViewClicked);
             lakeAbundanceSlider.onValueChanged.AddListener(OnLakeSettingChanged);
@@ -439,6 +443,7 @@ namespace Planetwalker.UI
             riverDensitySlider.onValueChanged.RemoveListener(OnRiverSettingChanged);
             riverWidthSlider.onValueChanged.RemoveListener(OnRiverSettingChanged);
             riverSmoothingSlider.onValueChanged.RemoveListener(OnRiverSettingChanged);
+            riverPlacementToggle.onValueChanged.RemoveListener(OnRiverPlacementToggled);
             lakeToggle.onValueChanged.RemoveListener(OnLakeToggled);
             lakeViewButton.onClick.RemoveListener(OnLakeViewClicked);
             lakeAbundanceSlider.onValueChanged.RemoveListener(OnLakeSettingChanged);
@@ -655,6 +660,39 @@ namespace Planetwalker.UI
             }
         }
 
+        void OnRiverPlacementToggled(bool canonical)
+        {
+            PlanetVisualController visual = Visual;
+            if (visual != null)
+            {
+                visual.Rivers.placement = canonical ? RiverSettings.PlacementCanonical : RiverSettings.PlacementLegacy;
+            }
+        }
+
+        /// <summary>Canonical river surface statistics (V0.2.0G.2D), refreshed every few frames while shown (LOD state).</summary>
+        void UpdateRiverSurfaceStats(PlanetVisualController visual)
+        {
+            if (!visual.RiversVisible || !visual.CanonicalRivers || !visual.RiverSurface.HasSurface)
+            {
+                if (riverSurfaceStatsText.text.Length > 0) riverSurfaceStatsText.text = "";
+                return;
+            }
+            if (Time.frameCount - riverSurfaceStatsFrame < 20)
+            {
+                return;
+            }
+            riverSurfaceStatsFrame = Time.frameCount;
+            RiverSurface surface = visual.RiverSurface;
+            RiverSurfaceDiagnostics d = surface.Diagnostics;
+            riverSurfaceStatsText.text = string.Format(CultureInfo.InvariantCulture,
+                "Surface: {0:N0} pieces · far {1:N0} / mid {2:N0} / near {3} · {4:N0} samples (scale {5:0.0}) · cache {6:N0} ({7:0.0} MB) · pending {8} · tick {9:0.00} ms\n"
+                + "Corridors: {10:N0} / {11:N0} nodes carved · links {12:N0} matched / {13:N0} off · snapped {14:N0} / {15:N0} · offset mean {16:0.0} km max {17:0.0} km · residual max {18:0.00} m · mouths above sea {19}",
+                d.Pieces, d.FarPieces, d.MidPieces, d.NearPieces, d.DisplayedSamples, d.BudgetScale, d.CachedPieces, d.CacheBytes / 1048576.0, d.PendingBuilds,
+                visual.RiverSurfaceTickMilliseconds,
+                d.ChannelNodes, d.TrajectoryNodes, d.MatchedLinks, d.MismatchedLinks, d.SnappedSamples, d.SpineSamples,
+                d.MeanOffsetMeters / 1000f, d.MaxOffsetMeters / 1000f, d.MaxResidualMeters, d.CanonicalMouthGaps);
+        }
+
         void OnRiverDebugToggled(bool show)
         {
             PlanetVisualController visual = Visual;
@@ -724,6 +762,7 @@ namespace Planetwalker.UI
             riverWidthSlider.SetValueWithoutNotify(visual.Rivers.widthMultiplier);
             riverSmoothingSlider.SetValueWithoutNotify(visual.Rivers.smoothing);
             riverToggle.SetIsOnWithoutNotify(visual.Rivers.showRivers);
+            riverPlacementToggle.SetIsOnWithoutNotify(visual.CanonicalRivers);
             UpdateRiverLabels();
             syncing = false;
         }
@@ -1653,6 +1692,11 @@ namespace Planetwalker.UI
             {
                 riverToggle.SetIsOnWithoutNotify(visual.Rivers.showRivers);
             }
+            if (riverPlacementToggle.isOn != visual.CanonicalRivers)
+            {
+                riverPlacementToggle.SetIsOnWithoutNotify(visual.CanonicalRivers);
+            }
+            UpdateRiverSurfaceStats(visual);
             if (lakeToggle.isOn != visual.Lakes.showLakes)
             {
                 lakeToggle.SetIsOnWithoutNotify(visual.Lakes.showLakes);
@@ -2046,7 +2090,11 @@ namespace Planetwalker.UI
             riverDensitySlider = CreateSliderRow(panel, font, "River Density", 0f, 1f, false, out riverDensityValue);
             riverWidthSlider = CreateSliderRow(panel, font, "River Width", 0.25f, 4f, false, out riverWidthValue);
             riverSmoothingSlider = CreateSliderRow(panel, font, "River Smoothing", 0f, 1f, false, out riverSmoothingValue);
+            var riverPlacementRow = CreateRow(panel, "River Placement Row");
+            riverPlacementToggle = CreateToggle(riverPlacementRow, font, "Rivers On Terrain (canonical)");
+            riverPlacementToggle.isOn = true;
             riverStatsText = CreateLabel(panel, font, "Rivers: computed when shown", 11, FontStyle.Normal, MutedTextColor, 46f);
+            riverSurfaceStatsText = CreateLabel(panel, font, "", 11, FontStyle.Normal, MutedTextColor, 34f);
 
             CreateLabel(panel, font, "LAKES", 13, FontStyle.Bold, AccentColor, 18f);
             var lakeRow = CreateRow(panel, "Lake Row");

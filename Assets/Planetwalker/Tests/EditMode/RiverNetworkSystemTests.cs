@@ -522,6 +522,8 @@ namespace Planetwalker.Tests
             Vector3[] withoutRivers = face.vertices;
 
             visual.Rivers.showRivers = true;
+            // Both placements (V0.2.0G.2D): the legacy ribbon mesh, then the canonical surface (its far mesh, prepass completed here).
+            visual.Rivers.placement = RiverSettings.PlacementLegacy;
             visual.Render(new PlanetInstance(definition));
             CollectionAssert.AreEqual(withoutRivers, face.vertices, "Rivers never change the terrain mesh");
             Assert.IsTrue(visual.RiversVisible);
@@ -532,6 +534,18 @@ namespace Planetwalker.Tests
             {
                 Assert.IsFalse(float.IsNaN(v.x) || float.IsNaN(v.y) || float.IsNaN(v.z));
                 Assert.IsTrue(v.magnitude > radius * 0.9f && v.magnitude < radius * 1.1f, "Ribbons lie on the terrain");
+            }
+            visual.Rivers.placement = RiverSettings.PlacementCanonical;
+            visual.Render(new PlanetInstance(definition));
+            CollectionAssert.AreEqual(withoutRivers, face.vertices, "Rivers never change the terrain mesh (canonical placement)");
+            Assert.IsTrue(visual.RiversVisible && visual.RiverSurface.HasSurface);
+            visual.RiverSurface.CompleteSynchronously(new RiverSurfaceView(new Vector3d(0, 0, radius * 3f), radius * 2f, 1000f));
+            Mesh far = visual.RiverSurface.FarMesh;
+            Assert.Greater(far.vertexCount, 0);
+            foreach (Vector3 v in far.vertices)
+            {
+                Assert.IsFalse(float.IsNaN(v.x) || float.IsNaN(v.y) || float.IsNaN(v.z));
+                Assert.IsTrue(v.magnitude > radius * 0.9f && v.magnitude < radius * 1.1f, "The canonical surface lies on the terrain");
             }
             Assert.AreEqual(7, visual.GeneratedObjectCount, "Rivers add no GameObject");
         }

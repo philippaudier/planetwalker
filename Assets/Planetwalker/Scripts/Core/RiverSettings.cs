@@ -12,6 +12,8 @@ namespace Planetwalker.Core
     public sealed class RiverSettings
     {
         public const int MaxSmoothingIterations = 3;
+        /// <summary>River surface placement models (<see cref="placement"/>).</summary>
+        public const int PlacementLegacy = 0, PlacementCanonical = 1;
 
         [Tooltip("Render rivers on the normal (artistic) view. Off by default like Show Hydrology: "
             + "when on, every regeneration also runs the hydrology analysis.")]
@@ -62,6 +64,12 @@ namespace Planetwalker.Core
 
         public Color color = new Color(0.16f, 0.36f, 0.62f);
 
+        [Tooltip("River surface placement (V0.2.0G.2D): 0 = legacy (ribbons draped on the legacy face mesh and lifted), "
+            + "1 = canonical (placed on the terrain the adaptive renderer draws, snapped onto the carved corridors). "
+            + "Presentation only: the terrain and the hydrology never change.")]
+        [Range(0, 1)]
+        public int placement = PlacementCanonical;
+
         public int SmoothingIterations => Mathf.Clamp(Mathf.RoundToInt(smoothing * MaxSmoothingIterations), 0, MaxSmoothingIterations);
 
         /// <summary>
@@ -96,6 +104,7 @@ namespace Planetwalker.Core
             minWidth = Mathf.Max(0f, minWidth);
             maxWidth = Mathf.Max(minWidth, maxWidth);
             minPixelHalfWidth = Mathf.Max(0f, minPixelHalfWidth);
+            placement = Mathf.Clamp(placement, PlacementLegacy, PlacementCanonical);
         }
     }
 }

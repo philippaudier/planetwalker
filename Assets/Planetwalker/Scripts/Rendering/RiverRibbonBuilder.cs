@@ -33,7 +33,7 @@ namespace Planetwalker.Rendering
         readonly List<Vector3> vertices = new List<Vector3>();
         readonly List<Vector3> normals = new List<Vector3>();
         readonly List<Vector4> sides = new List<Vector4>();
-        readonly List<Vector3> widths = new List<Vector3>();
+        readonly List<Vector4> widths = new List<Vector4>();
         readonly List<float> vertexFlare = new List<float>();
         readonly List<Vector3> markerDirections = new List<Vector3>();
         readonly List<TransitionMarker> markerKinds = new List<TransitionMarker>();
@@ -66,7 +66,7 @@ namespace Planetwalker.Rendering
         const float SubmergedMeshSpacings = 0.5f;
         // Mouth flare: relative widening at the shoreline, over this many half widths (at least one
         // render quad) upstream of it.
-        const float MouthFlare = 0.3f;
+        public const float MouthFlare = 0.3f;
         const float FlareHalfWidths = 6f;
         const float FlareMeshSpacings = 2f;
         // Ribbon edges past the shoreline are pulled back into the water with this many bisection steps.
@@ -99,6 +99,8 @@ namespace Planetwalker.Rendering
             public int ClampToLake;
             /// <summary>Mouth flare factor applied to the half width (1 = none).</summary>
             public float Flare;
+            /// <summary>Trajectory parameter (node index, fractional) of the sample along its river (V0.2.0G.2D).</summary>
+            public float Param;
         }
         readonly List<Vector3> points = new List<Vector3>();
         readonly List<float> pointAccumulation = new List<float>();
@@ -109,7 +111,9 @@ namespace Planetwalker.Rendering
         readonly List<float> reachDistance = new List<float>();
         readonly List<float> reachWater = new List<float>();
         readonly List<float> reachFlare = new List<float>();
+        readonly List<float> reachParam = new List<float>();
         bool[] hasTributary = new bool[0];
+        float lastSpineStep;
 
         public int LastDisplayedRiverCount { get; private set; }
         public int LastVertexCount => vertices.Count;
@@ -146,11 +150,18 @@ namespace Planetwalker.Rendering
         /// <param name="water">Lake surface built for <paramref name="lakes"/>.Lakes on the same sampler
         /// (rendered shoreline); built internally when null or stale.</param>
         public void Build(Mesh mesh, RiverNetwork network, PlanetSurfaceSampler sampler, PlanetInstance planet, RiverSettings settings,
-            LakeRiverLayer lakes = null, LakeMeshBuilder water = null)
+            LakeRiverLayer lakes = null, LakeMeshBuilder water = null, bool geometry = true)
         {
             var stopwatch = Stopwatch.StartNew();
-            BuildGeometry(network, sampler, planet, settings, lakes, water);
-            Upload(mesh, planet.Radius);
+            BuildGeometry(network, sampler, planet, settings, lakes, water, geometry);
+            if (geometry)
+            {
+                Upload(mesh, planet.Radius);
+            }
+            else if (mesh != null)
+            {
+                mesh.Clear(); // the spine only: the canonical river surface draws the rivers (V0.2.0G.2D)
+            }
             LastMilliseconds = (float)stopwatch.Elapsed.TotalMilliseconds;
         }
 
@@ -199,9 +210,31 @@ namespace Planetwalker.Rendering
         /// <summary>Ocean cells of mouths that could not be visually connected (diagnostics view).</summary>
         public bool IsUnresolvedMouthCell(int cell) => unresolvedMouths.Contains(cell);
 
+        /// <summary>
+        /// The river spine of the last build (V0.2.0G.2D): the resampled centerline samples (legacy trajectory, mouth and
+        /// lake handling, nominal and overlap-clamped widths) the canonical river surface is placed from. Samples of
+        /// ribbon i are [GetSpineStart(i), GetSpineStart(i + 1)).
+        /// </summary>
+        public int SpineSampleCount => samples.Count;
+
+        public int GetSpineStart(int ribbon) => ribbon < sampleStarts.Count ? sampleStarts[ribbon] : samples.Count;
+
+        public RiverSpineSample GetSpineSample(int index)
+        {
+            Sample s = samples[index];
+            return new RiverSpineSample
+            {
+                Direction = s.Direction, River = s.River, HalfWidth = s.HalfWidth, WaterRadius = s.WaterRadius,
+                ClampToLake = s.ClampToLake, Flare = s.Flare > 0f ? s.Flare : 1f, Param = s.Param,
+            };
+        }
+
+        /// <summary>Resampling step of the spine (radians): the level-0 spacing of the river surface.</summary>
+        public float SpineStep => lastSpineStep;
+
         /// <summary>Computes the ribbon geometry without touching any Unity object (testable).</summary>
         public void BuildGeometry(RiverNetwork network, PlanetSurfaceSampler sampler, PlanetInstance planet, RiverSettings settings,
-            LakeRiverLayer lakes = null, LakeMeshBuilder water = null)
+            LakeRiverLayer lakes = null, LakeMeshBuilder water = null, bool geometry = true)
         {
             if (lakes != null && lakes.Network != network)
             {
@@ -281,6 +314,7 @@ namespace Planetwalker.Rendering
                         Direction = points[i],
                         River = river,
                         HalfWidth = 0.5f * settings.GetDisplayWidth(pointAccumulation[i], pointDistance[i]),
+                        Param = pointParam[i],
                     });
                 }
             }
@@ -289,6 +323,11 @@ namespace Planetwalker.Rendering
 
             // Pass 2: unrelated rivers whose ribbons would overlap get locally narrower ribbons.
             ClampWidthOverlaps(network, grid, cellSpacing);
+            lastSpineStep = maxStep;
+            if (!geometry)
+            {
+                return; // the spine only (V0.2.0G.2D): the canonical river surface places it on the terrain itself
+            }
 
             // Pass 3: ribbon geometry on the displayed terrain, without folds.
             for (int ribbon = 0; ribbon < ribbonRivers.Count; ribbon++)
@@ -334,6 +373,7 @@ namespace Planetwalker.Rendering
                 reachDistance.Clear();
                 reachWater.Clear();
                 reachFlare.Clear();
+                reachParam.Clear();
 
                 // Start.
                 int startIndex = reach.Start == ReachStart.Source ? 0 : FirstPointAtOrAfter(reach.FirstNode);
@@ -508,6 +548,7 @@ namespace Planetwalker.Rendering
                         reachDistance.RemoveRange(0, trimmed);
                         reachWater.RemoveRange(0, trimmed);
                         reachFlare.RemoveRange(0, trimmed);
+                        reachParam.RemoveRange(0, trimmed);
                         startCrossing = startCrossing >= trimmed ? startCrossing - trimmed : -1;
                         endCrossing = endCrossing >= trimmed ? endCrossing - trimmed : -1;
                     }
@@ -565,6 +606,7 @@ namespace Planetwalker.Rendering
                         WaterRadius = reachWater[i],
                         ClampToLake = clamp,
                         Flare = reachFlare[i],
+                        Param = reachParam[i],
                     });
                     diagnostics.SubmergedSamples += reachWater[i] > 0f ? 1 : 0;
                 }
@@ -755,6 +797,7 @@ namespace Planetwalker.Rendering
             reachDistance.Add(distance + distanceOffset);
             reachWater.Add(waterRadius);
             reachFlare.Add(1f);
+            reachParam.Add(param);
         }
 
         /// <summary>
@@ -875,6 +918,7 @@ namespace Planetwalker.Rendering
             reachDistance.Add(distance);
             reachWater.Add(waterRadius);
             reachFlare.Add(1f);
+            reachParam.Add(reachParam.Count > 0 ? reachParam[reachParam.Count - 1] : 0f); // past the last node: its cell
         }
 
         /// <summary>Lake whose water covers a direction (footprint or shore cell, true terrain below its level), or -1.</summary>
@@ -1356,8 +1400,8 @@ namespace Planetwalker.Rendering
                 float flare = samples[first + k].Flare > 0f ? samples[first + k].Flare : 1f;
                 // z: mouth color blend, 0 upstream of the flare zone, 1 at the shoreline.
                 float mouth = Mathf.Clamp01((flare - 1f) / MouthFlare);
-                widths.Add(new Vector3(halfWidth, waterRadius, mouth));
-                widths.Add(new Vector3(halfWidth, waterRadius, mouth));
+                widths.Add(new Vector4(halfWidth, waterRadius, mouth, 0f));
+                widths.Add(new Vector4(halfWidth, waterRadius, mouth, 0f));
                 vertexFlare.Add(flare);
                 vertexFlare.Add(flare);
 
@@ -1539,6 +1583,23 @@ namespace Planetwalker.Rendering
         public int HiddenReachesSkipped;
         /// <summary>Samples touching a lake the reach neither enters nor leaves (trimmed at a source, else under water).</summary>
         public int ShoreContactSamples;
+    }
+
+    /// <summary>A river spine sample (see <see cref="RiverRibbonBuilder.GetSpineSample"/>).</summary>
+    public struct RiverSpineSample
+    {
+        public Vector3 Direction;
+        public int River;
+        /// <summary>Angular half width (unit sphere), overlap clamp and mouth flare included.</summary>
+        public float HalfWidth;
+        /// <summary>Lake water radius (object space) the sample is kept under, or 0.</summary>
+        public float WaterRadius;
+        /// <summary>Lake + 1 whose rendered water the edges must stay in, 0 = none.</summary>
+        public int ClampToLake;
+        /// <summary>Mouth flare factor (1 = none).</summary>
+        public float Flare;
+        /// <summary>Trajectory parameter along the river (node index, fractional).</summary>
+        public float Param;
     }
 
     /// <summary>Kind of a lake transition marker (shoreline debug view).</summary>

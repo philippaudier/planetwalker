@@ -559,7 +559,7 @@ namespace Planetwalker.Terrain
         {
             PlanetInstance planet = snapshot?.Planet;
             // The landform relief clay (V0.2.0G.1): shape and sunlight only (no ground layer, geology or materials).
-            bool clay = snapshot != null && snapshot.DebugView == PlanetDebugView.LandformRelief;
+            bool clay = snapshot != null && PlanetDebugViews.IsClay(snapshot.DebugView);
             bool ground = planet != null && planet.Definition.surfaceDetail && groundDetailStrength > 0f && !clay;
             bool geology = planet != null && geologyEnabled && geologyStrength > 0f && !clay;
             target.SetVector(GeoParamsId, geology && viewer != null

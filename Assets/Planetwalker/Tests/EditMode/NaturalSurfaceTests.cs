@@ -465,7 +465,10 @@ namespace Planetwalker.Tests
             Assert.IsTrue(visual.LakesVisible, "R: lakes drawn over the Natural Planet");
             Assert.IsTrue(visual.RiversVisible, "R: rivers drawn over the Natural Planet");
             Assert.Greater(visual.LakeMesh.vertexCount, 0);
-            Assert.Greater(visual.RiverMesh.vertexCount, 0);
+            // Canonical placement (V0.2.0G.2D, the default): the river surface draws the rivers, its prepass finished here.
+            Assert.IsTrue(visual.CanonicalRivers && visual.RiverSurface.HasSurface, "R: the canonical river surface exists");
+            visual.RiverSurface.CompleteSynchronously(new RiverSurfaceView(new Vector3d(0, 0, planet.Radius * 3f), planet.Radius * 2f, 1000f));
+            Assert.Greater(visual.RiverSurface.FarMesh.vertexCount, 0, "R: rivers drawn over the Natural Planet (far mesh)");
             foreach (PlanetDebugView view in Enum.GetValues(typeof(PlanetDebugView)))
             {
                 visual.DebugView = view;
