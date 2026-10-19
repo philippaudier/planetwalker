@@ -203,6 +203,7 @@ namespace Planetwalker.Tests
             t.regionalLandforms = 0.7f;
             t.erosionStrength = 0.8f;
             t.erosionModel = 0;
+            t.riverBeds = 0; // V0.2.0G.2E: non-default (the round-trip guard covers it; the G.2B terrain of the test worlds)
 
             c.Hydrology.resolution = HydrologySettings.PreviewResolution;
             c.Hydrology.riverNetworkThreshold = 1e-3f;

@@ -172,6 +172,7 @@ namespace Planetwalker.Generation
                 var profile = new TerrainDetailProfile(PlanetScale.Of(d), d.detailFrequency, d.detailStrength, d.regionalDetail, d.localDetail, d.microDetail);
                 if (profile.OctaveCount > 0)
                 {
+                    var relief = new TerrainReliefField(GetBaseElevation);
                     // Regional landforms (V0.2.0G.1): strength 0 builds none (the terrain is then exactly V0.2.0F.3's).
                     RegionalLandforms landforms = null;
                     if (d.regionalLandforms > 0f)
@@ -179,9 +180,23 @@ namespace Planetwalker.Generation
                         // The ranges' drainage network (V0.2.0G.1.1), from e0 alone: built once, then a lookup.
                         PlanetScale scale = PlanetScale.Of(d);
                         int seedForCharacter = d.seed;
+                        bool wholeNetwork = d.riverBeds > 0;
+                        Func<Vector3, float> hydrologyElevation = null;
+                        if (wholeNetwork)
+                        {
+                            // V0.2.0G.2E, one hydrology: the channel network drains the very field the river network's
+                            // hydrology reads, the legacy elevation band-limited to the reference grid (and to the legacy
+                            // mesh). Provisional detail without the network: at that spacing valleys, incision, bed and
+                            // their calm have a zero band weight, so the final planet's legacy field is this one, bit for bit.
+                            surfaceDetail = new TerrainDetail(profile, relief, d.seed, d.seaLevel,
+                                new RegionalLandforms(scale, d.seed, d.regionalLandforms, d.seaLevel, null), null);
+                            float spacing = Mathf.Max(Mathf.PI * 0.5f / ValleyNetwork.GridResolution, Mathf.PI * 0.5f / d.resolution);
+                            hydrologyElevation = dir => GetElevation(dir, spacing);
+                        }
                         var valleys = new ValleyNetwork(dir => { SampleBase(dir, out TerrainBaseSample s); return s; },
                             d.seaLevel, scale.RadiusMeters, d.seed, RegionalLandforms.MaxValleyDepthMeters, // depths scaled by the strength in the landforms
-                            dir => TerrainDetail.CharacterField(dir, seedForCharacter)); // V0.2.0G.2B: regional erodibility of the incision
+                            dir => TerrainDetail.CharacterField(dir, seedForCharacter), // V0.2.0G.2B: regional erodibility of the incision
+                            hydrologyElevation, wholeNetwork);
                         landforms = new RegionalLandforms(scale, d.seed, d.regionalLandforms, d.seaLevel, valleys);
                     }
                     // Erosion stage (V0.2.0G.2A): the foundation, zero displacement; strength 0 builds none.
@@ -189,7 +204,7 @@ namespace Planetwalker.Generation
                     ErosionSampler erosion = d.erosionStrength > 0f
                         ? new ErosionSampler(new ErosionContext(PlanetScale.Of(d), d.seed, d.seaLevel, d.erosionStrength, landforms, (ErosionModel)d.erosionModel))
                         : null;
-                    surfaceDetail = new TerrainDetail(profile, new TerrainReliefField(GetBaseElevation), d.seed, d.seaLevel, landforms, erosion);
+                    surfaceDetail = new TerrainDetail(profile, relief, d.seed, d.seaLevel, landforms, erosion);
                 }
             }
         }

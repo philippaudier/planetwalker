@@ -1,0 +1,543 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Text;
+using NUnit.Framework;
+using Planetwalker.CameraControl;
+using Planetwalker.Core;
+using Planetwalker.Generation;
+using Planetwalker.Persistence;
+using Planetwalker.Rendering;
+using Planetwalker.Terrain;
+using UnityEngine;
+using UnityEngine.Rendering;
+using Object = UnityEngine.Object;
+
+namespace Planetwalker.Tests
+{
+    /// <summary>V0.2.0G.2E river bed captures: A (riverBeds 0, the G.2B terrain) / B (riverBeds 1, beds along the whole network), canonical placement, default configuration, seed 1337, density 100 %.</summary>
+    public class G2ECaptures
+    {
+        const string Out = @"C:\Users\Philippe\Documents\Programming\Unity\Projects\planetwalker\Docs\Captures\V0.2.0G.2E";
+        const int Seed = 1337;
+        const int W = 960, H = 540;
+        static readonly BindingFlags Private = BindingFlags.NonPublic | BindingFlags.Instance;
+        static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+        readonly List<Object> created = new List<Object>();
+        readonly StringBuilder log = new StringBuilder();
+        readonly StringBuilder meta = new StringBuilder();
+        WorldTestHost host;
+        PlanetExploreCamera explorer;
+        Camera camera;
+        AdaptiveTerrainRenderer terrain;
+        PlanetScale scale;
+        double radiusM;
+        RenderTexture target;
+        Texture2D readback;
+        PlanetInstance planet;
+
+        [TearDown]
+        public void TearDown()
+        {
+            foreach (Object o in created) if (o != null) Object.DestroyImmediate(o);
+            created.Clear();
+        }
+
+        static GameObject Shell(PlanetVisualController visual, float radius, Mesh mesh, Material material, string blockField)
+        {
+            var shell = new GameObject("Shell");
+            shell.transform.SetParent(visual.transform, false);
+            shell.transform.localScale = Vector3.one * radius;
+            shell.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var mr = shell.AddComponent<MeshRenderer>();
+            mr.sharedMaterial = material;
+            mr.SetPropertyBlock((MaterialPropertyBlock)typeof(PlanetVisualController).GetField(blockField, Private).GetValue(visual));
+            return shell;
+        }
+
+        Color32[] Render()
+        {
+            PlanetVisualController visual = host.Visual;
+            visual.ApplyOceanAtmosphere();
+            var go = new GameObject("Frame");
+            Camera cam = go.AddComponent<Camera>();
+            cam.CopyFrom(camera);
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = new Color(0.01f, 0.012f, 0.02f);
+            terrain.Draw(cam);
+            visual.SubmitPresentationDraws(cam);
+            GameObject atmo = visual.AtmosphereVisible ? Shell(visual, visual.AtmosphereRadius, visual.AtmosphereMesh, visual.AtmosphereMaterialInUse, "atmosphereProperties") : null;
+            GameObject clouds = visual.CloudsVisible ? Shell(visual, visual.CloudRadius, visual.CloudMesh, visual.CloudMaterialFor(camera.transform.position), "cloudProperties") : null;
+            if (target == null)
+            {
+                target = new RenderTexture(W, H, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB) { antiAliasing = 4 };
+                readback = new Texture2D(W, H, TextureFormat.RGB24, false);
+            }
+            cam.targetTexture = target;
+            cam.Render();
+            RenderTexture.active = target;
+            readback.ReadPixels(new Rect(0, 0, W, H), 0, 0);
+            readback.Apply();
+            RenderTexture.active = null;
+            cam.targetTexture = null;
+            Object.DestroyImmediate(go);
+            if (atmo != null) Object.DestroyImmediate(atmo);
+            if (clouds != null) Object.DestroyImmediate(clouds);
+            return readback.GetPixels32();
+        }
+
+        void Save(Color32[] pixels, string name, string scenario, string note = "")
+        {
+            var tex = new Texture2D(W, H, TextureFormat.RGB24, false);
+            tex.SetPixels32(pixels);
+            tex.Apply();
+            File.WriteAllBytes(Path.Combine(Out, name + ".png"), tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+            Vector3d p = explorer.Position;
+            meta.Append(string.Format(Inv, "| {0}.png | {1} | {2} | {3:0.0} m | ({4:0.000000}, {5:0.000000}, {6:0.000000}) | {7} | {8} | {9} | {10} |\n",
+                name, scenario, Seed, explorer.ClearanceMeters, p.x, p.y, p.z, terrain.Settings.maxLeafPatches,
+                terrain.MaterialMode, terrain.MaterialDebug, note));
+        }
+
+        void SaveDiff(Color32[] a, Color32[] b, string name, string scenario, string note)
+        {
+            var d = new Color32[a.Length];
+            for (int i = 0; i < a.Length; i++)
+            {
+                int v = Math.Min(255, 8 * (Math.Abs(a[i].r - b[i].r) + Math.Abs(a[i].g - b[i].g) + Math.Abs(a[i].b - b[i].b)) / 3);
+                d[i] = new Color32((byte)v, (byte)v, (byte)v, 255);
+            }
+            Save(d, name, scenario, note + " (absolute difference x8)");
+        }
+
+        static double Diff(Color32[] a, Color32[] b)
+        {
+            long sum = 0;
+            for (int i = 0; i < a.Length; i++) sum += Math.Abs(a[i].r - b[i].r) + Math.Abs(a[i].g - b[i].g) + Math.Abs(a[i].b - b[i].b);
+            return sum / (3.0 * a.Length);
+        }
+
+        static double Changed(Color32[] a, Color32[] b, int threshold = 6)
+        {
+            long n = 0;
+            for (int i = 0; i < a.Length; i++) if (Math.Abs(a[i].r - b[i].r) + Math.Abs(a[i].g - b[i].g) + Math.Abs(a[i].b - b[i].b) > threshold) n++;
+            return 100.0 * n / a.Length;
+        }
+
+        static double Luma(Color32[] f)
+        {
+            double s = 0; int n = 0;
+            for (int y = 0; y < H / 2; y++) for (int x = W / 4; x < 3 * W / 4; x++) { Color32 q = f[x + y * W]; s += 0.3 * q.r + 0.59 * q.g + 0.11 * q.b; n++; }
+            return s / n;
+        }
+
+        void Settle()
+        {
+            for (int i = 0; i < 400; i++)
+            {
+                terrain.Tick(camera);
+                if (terrain.IsDisplaying && terrain.Covering.Converged && terrain.Scheduler.Pending == 0) break;
+            }
+        }
+
+        void Pose(Vector3d at, double meters, Vector3d facing, double pitchDeg)
+        {
+            Vector3d u = at.Normalized;
+            Vector3d f = (facing - u * Vector3d.Dot(facing, u)).Normalized;
+            double p = pitchDeg * Math.PI / 180.0;
+            explorer.SetPose(u * (explorer.FloorRadius(u) + scale.ToUnits(meters)), f * Math.Cos(p) + u * Math.Sin(p), f);
+            explorer.Place();
+        }
+
+        float SunHeight(Vector3d d)
+        {
+            Vector3 sun = host.Visual.transform.InverseTransformDirection(host.Visual.SunDirection).normalized;
+            return Vector3.Dot(d.Normalized.ToVector3(), sun);
+        }
+
+        void LightPoint(Vector3d d, float height)
+        {
+            float best = 0.42f, bestErr = float.MaxValue;
+            for (int k = 0; k < 400; k++)
+            {
+                float t = k / 400f;
+                host.Visual.SetSolarTime(t);
+                float err = Mathf.Abs(SunHeight(d) - height) + (t > 0.5f ? 0.001f : 0f);
+                if (err < bestErr) { bestErr = err; best = t; }
+            }
+            host.Visual.SetSolarTime(best);
+        }
+
+        Color32[] RenderTerrainOnly()
+        {
+            var go = new GameObject("TerrainOnly");
+            Camera cam = go.AddComponent<Camera>();
+            cam.CopyFrom(camera);
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = new Color(1f, 0f, 1f);
+            host.Visual.OceanRenderer.enabled = false;
+            terrain.Draw(cam);
+            cam.targetTexture = target;
+            cam.Render();
+            RenderTexture.active = target;
+            readback.ReadPixels(new Rect(0, 0, W, H), 0, 0);
+            readback.Apply();
+            RenderTexture.active = null;
+            cam.targetTexture = null;
+            host.Visual.OceanRenderer.enabled = true;
+            Object.DestroyImmediate(go);
+            return readback.GetPixels32();
+        }
+
+        /// <summary>Background pixels enclosed by terrain in their column (terrain above and below): holes.</summary>
+        static int Holes(Color32[] px)
+        {
+            int holes = 0;
+            for (int x = 0; x < W; x++)
+            {
+                bool terrainAbove = false;
+                int run = 0;
+                for (int y = H - 1; y >= 0; y--)
+                {
+                    Color32 q = px[x + y * W];
+                    bool background = q.r > 240 && q.g < 20 && q.b > 240;
+                    if (!background)
+                    {
+                        if (terrainAbove) holes += run;
+                        terrainAbove = true;
+                        run = 0;
+                    }
+                    else if (terrainAbove)
+                    {
+                        run++;
+                    }
+                }
+            }
+            return holes;
+        }
+
+        struct Hit { public double Distance; public bool Skirt; }
+
+        bool Raycast(Vector3 origin, Vector3 dir, out Hit best)
+        {
+            best = new Hit { Distance = double.MaxValue };
+            var cache = (PatchMeshCache)typeof(AdaptiveTerrainRenderer).GetField("meshes", Private).GetValue(terrain);
+            int grid = terrain.Snapshot.Topology.GridVertexCount;
+            foreach (PlanetPatchId leaf in terrain.Displayed.Leaves)
+            {
+                if (!cache.TryGet(leaf, out PatchMeshCache.Entry entry)) continue;
+                Matrix4x4 m = terrain.PatchMatrix(entry.Geometry.Origin);
+                Bounds b = entry.Geometry.LocalBounds;
+                Vector3 c = m.MultiplyPoint3x4(b.center);
+                float radius = b.extents.magnitude * Math.Abs(host.Root.transform.lossyScale.x);
+                Vector3 oc = c - origin;
+                float along = Vector3.Dot(oc, dir);
+                if ((oc - dir * along).sqrMagnitude > radius * radius * 1.01f && oc.sqrMagnitude > radius * radius) continue;
+                Vector3[] v = entry.Mesh.vertices;
+                int[] t = entry.Mesh.GetIndices(0);
+                for (int i = 0; i < t.Length; i += 3)
+                {
+                    Vector3 a = m.MultiplyPoint3x4(v[t[i]]), bb = m.MultiplyPoint3x4(v[t[i + 1]]), cc = m.MultiplyPoint3x4(v[t[i + 2]]);
+                    if (Intersect(origin, dir, a, bb, cc, out double d) && d < best.Distance)
+                    {
+                        best = new Hit { Distance = d, Skirt = t[i] >= grid || t[i + 1] >= grid || t[i + 2] >= grid };
+                    }
+                }
+            }
+            return best.Distance < double.MaxValue;
+        }
+
+        static bool Intersect(Vector3 o, Vector3 d, Vector3 a, Vector3 b, Vector3 c, out double t)
+        {
+            double ex1 = b.x - a.x, ey1 = b.y - a.y, ez1 = b.z - a.z, ex2 = c.x - a.x, ey2 = c.y - a.y, ez2 = c.z - a.z;
+            double px = d.y * ez2 - d.z * ey2, py = d.z * ex2 - d.x * ez2, pz = d.x * ey2 - d.y * ex2;
+            double det = ex1 * px + ey1 * py + ez1 * pz;
+            t = 0;
+            if (Math.Abs(det) < 1e-24) return false;
+            double inv = 1.0 / det, sx = o.x - a.x, sy = o.y - a.y, sz = o.z - a.z;
+            double u = (sx * px + sy * py + sz * pz) * inv;
+            if (u < 0 || u > 1) return false;
+            double qx = sy * ez1 - sz * ey1, qy = sz * ex1 - sx * ez1, qz = sx * ey1 - sy * ex1;
+            double v = (d.x * qx + d.y * qy + d.z * qz) * inv;
+            if (v < 0 || u + v > 1) return false;
+            t = (ex2 * qx + ey2 * qy + ez2 * qz) * inv;
+            return t > 0;
+        }
+
+        /// <summary>Distance from the camera to the rendered mesh (rays over the sphere), render units.</summary>
+        double NearestMesh()
+        {
+            double best = double.MaxValue;
+            const int rays = 300;
+            Vector3 o = camera.transform.position;
+            for (int q = 0; q < rays; q++)
+            {
+                double yy = 1.0 - 2.0 * (q + 0.5) / rays, rr = Math.Sqrt(1.0 - yy * yy), ph = q * 2.399963229728653;
+                var dir = new Vector3((float)(rr * Math.Cos(ph)), (float)yy, (float)(rr * Math.Sin(ph)));
+                if (Raycast(o, dir, out Hit h) && h.Distance < best) best = h.Distance;
+            }
+            return best;
+        }
+
+        /// <summary>|rendered mesh - authoritative height| on a 10 x 10 grid ahead of a point (50 .. 500 m), meters.</summary>
+        (double max, double mean) ApproximationError(Vector3d point, Vector3d f)
+        {
+            PlanetRenderFrame frame = host.Root.GetComponent<PlanetRenderFrame>();
+            Vector3d up = point.Normalized;
+            Vector3d east = Vector3d.Cross(f, up).Normalized;
+            double toM = scale.MetersPerUnit / Math.Abs(host.Root.transform.lossyScale.x);
+            double max = 0, sum = 0; int count = 0;
+            for (int i = 0; i < 10; i++)
+            for (int j = 0; j < 10; j++)
+            {
+                double ahead = 50.0 + i * 50.0, side = (j - 4.5) * 40.0;
+                Vector3d d = (up + f * (ahead / radiusM) + east * (side / radiusM)).Normalized;
+                double floor = explorer.FloorRadius(d);
+                Vector3 top = frame.PlanetToRender(d * (floor + scale.ToUnits(3000.0)));
+                Vector3 down = -frame.PlanetVectorToRender(d).ToVector3().normalized;
+                if (!Raycast(top, down, out Hit h)) continue;
+                double meshAboveFloor = 3000.0 - h.Distance * toM;
+                // Only land (the sea surface is the floor over water; the mesh is the sea bottom there).
+                if (planet.Height.GetElevation(d) <= planet.SeaLevel) continue;
+                double e = Math.Abs(meshAboveFloor);
+                max = Math.Max(max, e); sum += e; count++;
+            }
+            return (max, count > 0 ? sum / count : 0);
+        }
+
+
+        /// <summary>Terrain and rivers settled for the current pose: the adaptive patches, then the river surface (complete).</summary>
+        void SettleRivers()
+        {
+            Settle();
+            host.Visual.TickRiverSurface(camera, true);
+        }
+
+
+        struct Site { public string Name; public Vector3d At, Facing; public string Note; }
+
+        Site MakeSite(ValleyNetwork net, string name, int segment, string note)
+        {
+            ValleyNetwork.Segment g = net.GetSegment(segment);
+            Vector3d at = net.Invert(g.B);
+            Vector3d a = net.Invert(g.A);
+            Vector3d up = at.Normalized;
+            Vector3d flow = at - a; flow -= up * Vector3d.Dot(flow, up);
+            return new Site { Name = name, At = at, Facing = flow.Magnitude > 0 ? flow.Normalized : PlanetTangentFrame.At(at).North, Note = note };
+        }
+
+        [Test]
+        public void Run()
+        {
+            UnityEngine.TestTools.LogAssert.ignoreFailingMessages = true; // the URP probe-volume shader log of this batch environment
+            RenderSettings.skybox = null;
+            RenderSettings.ambientMode = AmbientMode.Flat;
+            Color ambient = new Color(0.10f, 0.11f, 0.14f);
+            var probe = new SphericalHarmonicsL2();
+            probe.AddAmbientLight(QualitySettings.activeColorSpace == ColorSpace.Linear ? ambient.linear : ambient);
+            RenderSettings.ambientProbe = probe;
+            Directory.CreateDirectory(Out);
+            meta.Append("| File | Scenario | Seed | Clearance | Camera (planet space, render units) | LOD budget | Mode | View | Note |\n|---|---|---|---|---|---|---|---|---|\n");
+
+            host = new WorldTestHost(created);
+            // The user's configuration: defaults, rivers shown at the panel's 100 % density, canonical placement (G.2D).
+            var c = new WorldConfiguration();
+            c.Terrain.seed = Seed;
+            c.Hydrology.riverNetworkThreshold = 1e-5f;
+            c.Rivers.showRivers = true;
+            c.Rivers.placement = RiverSettings.PlacementCanonical;
+            host.Apply(c);
+            host.Definition.seed = Seed;
+            host.Definition.surfaceDetail = true;
+            host.Definition.regionalLandforms = 1f; host.Definition.erosionStrength = 1f; host.Definition.erosionModel = 1;
+            host.Definition.riverBeds = 1;
+            host.Visual.Climate.resolution = 64;
+            host.Regenerate();
+            PlanetRenderFrame frame = PlanetRenderFrame.GetOrCreate(host.Root.transform);
+            foreach (Light l in Object.FindObjectsByType<Light>(FindObjectsSortMode.None)) { if (l.name == "Archive Test Star") RenderSettings.sun = l; else l.enabled = false; }
+            explorer = host.Camera.gameObject.AddComponent<PlanetExploreCamera>();
+            host.Camera.enabled = false;
+            explorer.Target = host.Root.transform;
+            explorer.Planet = host.Current;
+            camera = host.Camera.GetComponent<Camera>();
+            terrain = AdaptiveTerrainRenderer.GetOrCreate(host.Visual);
+            terrain.BackgroundConstruction = false;
+            terrain.ConstructionMilliseconds = 100000f;
+            terrain.MaxUploadsPerFrame = 4096;
+            terrain.MaxPendingBuilds = 4096;
+            terrain.ViewCamera = camera;
+            terrain.enabled = true;
+            terrain.MaterialMode = SurfaceMaterialMode.Pbr;
+            terrain.Tick(camera);
+            planet = host.Current;
+            scale = planet.Scale;
+            radiusM = scale.RadiusMeters;
+            PlanetVisualController visual = host.Visual;
+            visual.RefreshColors();
+            visual.TickRiverSurface(camera, true);
+            ValleyNetwork net = planet.Height.SurfaceDetail.Landforms.Valleys;
+            HydrologyResult h = net.Hydrology;
+            RiverSurfaceDiagnostics d0 = visual.RiverSurface.Diagnostics;
+            log.Append(string.Format(Inv, "Default configuration, seed {0}, hydrology {1}, threshold {2}, riverBeds 1: {3} rivers, {4} ribbons, {5} spine samples; channel cells {6} ({7} valley cells), {8} segments; corridors: {9} / {10} trajectory nodes on channels, matched {11} / mismatched {12}; snapped {13} / {14} spine samples",
+                Seed, visual.Hydrology.resolution, visual.Hydrology.riverNetworkThreshold, visual.CurrentRivers.RiverCount, visual.RiverRibbons.RibbonCount, visual.RiverRibbons.SpineSampleCount,
+                net.ChannelCount, net.ValleyCount, net.SegmentCount, d0.ChannelNodes, d0.TrajectoryNodes, d0.MatchedLinks, d0.MismatchedLinks, d0.SnappedSamples, d0.SpineSamples));
+
+            // ---- Sites, from the channel network of the G.2E planet (the same directions are then viewed on the G.2B terrain).
+            int torrent = -1, gorge = -1, plain = -1, meander = -1, head = -1, confluence = -1, mouth = -1;
+            float torrentScore = -1, gorgeI = -1, plainScore = -1, meanderK = -1, headScore = -1, confScore = -1, mouthScore = -1;
+            var upstream = new int[h.Grid.CellCount];
+            for (int cell = 0; cell < h.Grid.CellCount; cell++) { int r = h.GetReceiver(cell); if (r >= 0 && net.IsChannel(cell)) upstream[r]++; }
+            for (int s = 0; s < net.SegmentCount; s++)
+            {
+                ValleyNetwork.Segment g = net.GetSegment(s);
+                if (Math.Abs(g.B.y) > 0.75 || g.ChannelHalfWidthB <= 0f) continue;
+                int cell = g.Cell;
+                ChannelSection sec = net.NodeSection(cell);
+                int first = s - (s % ValleyNetwork.Subdivisions);
+                bool last = s == first + ValleyNetwork.Subdivisions - 1;
+                float score = sec.Rocky * g.DevelopmentB * (g.ValleyB > 0.5f ? 1f : 0.5f) * Mathf.Min(1f, g.ChannelHalfWidthB / 30f);
+                if (score > torrentScore) { torrentScore = score; torrent = s; }
+                bool aboveSea = planet.Height.GetElevation(net.Invert(g.B)) > planet.SeaLevel + 200f / (float)radiusM;
+                if (g.IncisionB > gorgeI && aboveSea) { gorgeI = g.IncisionB; gorge = s; }
+                if (g.ValleyB > 0f || !(aboveSea || h.GetReceiver(cell) >= 0 && !h.IsLand(h.GetReceiver(cell)))) continue;
+                // Alluvial reaches with a floodplain (a filled depression has a zero gradient but no floodplain: a lake floor).
+                float ps = sec.Alluvial * g.ChannelHalfWidthB * (sec.FloodplainHalfWidth > 0f ? 1f : 0.1f);
+                if (ps > plainScore) { plainScore = ps; plain = s; }
+                float k = Math.Abs(RiverBedMorphology.NormalizedCurvature(g.CurvatureB)) * Mathf.Min(1f, g.ChannelHalfWidthB / 100f) * (sec.Alluvial > 0.5f ? 1f : 0f);
+                if (k > meanderK) { meanderK = k; meander = s; }
+                if (upstream[cell] == 0 && last && sec.Development > 0.25f && sec.Development < 0.7f && sec.Development > headScore) { headScore = sec.Development; head = s; }
+                if (upstream[cell] >= 2 && last && g.ChannelHalfWidthB * sec.Alluvial > confScore) { confScore = g.ChannelHalfWidthB * sec.Alluvial; confluence = s; }
+                int rc = h.GetReceiver(cell);
+                if (rc >= 0 && !h.IsLand(rc) && last && g.Cells > mouthScore && planet.Height.GetElevation(net.Invert(net.GetSegment(first).A)) > planet.SeaLevel) { mouthScore = g.Cells; mouth = s; }
+            }
+            var sites = new List<Site>();
+            if (torrent >= 0) sites.Add(MakeSite(net, "torrent", torrent, "rocky mountain stream"));
+            if (gorge >= 0) sites.Add(MakeSite(net, "gorge", gorge, "deepest incision"));
+            if (plain >= 0) sites.Add(MakeSite(net, "plain", plain, "widest low-gradient alluvial channel"));
+            if (meander >= 0) sites.Add(MakeSite(net, "meander", meander, "tightest bend on the plains"));
+            if (head >= 0) sites.Add(MakeSite(net, "head", head, "channel head on the plains, development 0.25-0.7"));
+            if (confluence >= 0) sites.Add(MakeSite(net, "confluence", confluence, "plains confluence"));
+            if (mouth >= 0)
+            {
+                int first = mouth - (mouth % ValleyNetwork.Subdivisions), pick = first;
+                for (int s = first; s <= mouth; s++) if (planet.Height.GetElevation(net.Invert(net.GetSegment(s).B)) > planet.SeaLevel) pick = s;
+                sites.Add(MakeSite(net, "mouth", pick, "last channel segment above the sea of the largest river"));
+            }
+            foreach (Site site in sites)
+            {
+                net.Nearest(site.At, out ValleyNetwork.ChannelQuery q);
+                log.Append(string.Format(Inv, "\n{0}: at ({1:0.000000}, {2:0.000000}, {3:0.000000}); {4}; drained {5:0} cells, gradient {6:0.0000}, development {7:0.00}, channel half width {8:0} m, depth {9:0.0} m, bank {10:0} m, floodplain half width {11:0} m, incision {12:0} m, kappa_n {13:+0.00;-0.00}",
+                    site.Name, site.At.x, site.At.y, site.At.z, site.Note, q.Cells, q.Gradient, q.Development, q.ChannelHalfWidthMeters, q.ChannelDepthMeters, q.BankWidthMeters, q.FloodplainHalfWidthMeters, q.IncisionMeters, RiverBedMorphology.NormalizedCurvature(q.Curvature)));
+            }
+
+            var alts = new[] { (20000.0, -35.0, "20km"), (2000.0, -15.0, "2km"), (200.0, -6.0, "200m"), (20.0, -3.0, "20m") };
+            var frames = new Dictionary<string, Color32[]>();
+            ValleyNetwork bedNet = net; // the G.2E network: the sites' channel depths, whatever the configuration shown
+            foreach ((string config, int beds) in new[] { ("A", 0), ("B", 1) })
+            {
+                host.Definition.riverBeds = beds;
+                host.Regenerate();
+                planet = host.Current;
+                explorer.Planet = planet;
+                visual.RefreshColors();
+                visual.TickRiverSurface(camera, true);
+                net = bedNet;
+                foreach (Site site in sites)
+                {
+                    LightPoint(site.At, 0.55f);
+                    foreach ((PlanetDebugView view, string viewName) in new[] { (PlanetDebugView.None, "pbr"), (PlanetDebugView.RiverAlignment, "align") })
+                    {
+                        if (view != PlanetDebugView.None && config == "A") continue;
+                        visual.DebugView = view;
+                        foreach ((double meters, double pitch, string tag) in alts)
+                        {
+                            if (viewName == "align" && meters > 2000.0) continue;
+                            // The explorer floor is the bed: the 20 m view stands 20 m above the WATER (60 % of the thalweg depth).
+                            net.Nearest(site.At, out ValleyNetwork.ChannelQuery sq);
+                            double above = meters <= 20.0 ? meters + RiverSurface.WaterFillShare * sq.ChannelDepthMeters : meters;
+                            Pose(site.At, above, site.Facing, pitch);
+                            SettleRivers();
+                            Color32[] img = Render();
+                            string key = $"{site.Name}_{tag}_{viewName}";
+                            frames[config + "_" + key] = img;
+                            RiverSurfaceDiagnostics d = visual.RiverSurface.Diagnostics;
+                            string note = $"seed {Seed} {site.Name}, {tag}, pitch {pitch}, view {viewName}, riverBeds {beds}, sun height {SunHeight(site.At):0.00}, surface samples {d.DisplayedSamples}";
+                            Save(img, $"{config}_{key}", "G.2E " + config, note);
+                            if (config == "B" && frames.TryGetValue("A_" + key, out Color32[] before))
+                            {
+                                SaveDiff(before, img, $"D_{key}", "G.2E A-B", $"{site.Name} {tag} {viewName}: changed pixels {Changed(before, img):0.0} %");
+                                log.Append(string.Format(Inv, "\n{0} {1}: A vs B changed pixels {2:0.0} %", site.Name, tag, Changed(before, img)));
+                            }
+                        }
+                    }
+                    visual.DebugView = PlanetDebugView.None;
+                    // Probe at 20 m: the terrain under the camera, the river surface samples nearby.
+                    if (config == "B")
+                    {
+                        Pose(site.At, 20.0, site.Facing, -3.0);
+                        SettleRivers();
+                        double full = (planet.Height.GetElevation(site.At) - planet.SeaLevel) * radiusM;
+                        log.Append(string.Format(Inv, "\nProbe {0} (B): terrain {1:0.0} m above the sea, explorer floor {2:0.0} m, camera {3:0.0} m above the floor", site.Name, full, (explorer.FloorRadius(site.At) / planet.Radius - 1.0 - planet.SeaLevel) * radiusM, explorer.ClearanceMeters));
+                    }
+                }
+            }
+
+            // ---- LOD descent / ascent on the plains channel (B).
+            if (plain >= 0)
+            {
+                Site site = sites.First(s => s.Name == "plain");
+                LightPoint(site.At, 0.55f);
+                var series = new[] { (50000.0, -40.0, "50km"), (5000.0, -20.0, "5km"), (500.0, -8.0, "500m"), (50.0, -4.0, "50m"), (500.0, -8.0, "500m_up"), (5000.0, -20.0, "5km_up") };
+                var lodFrames = new Dictionary<string, Color32[]>();
+                foreach ((double meters, double pitch, string tag) in series)
+                {
+                    Pose(site.At, meters, site.Facing, pitch);
+                    SettleRivers();
+                    Color32[] img = Render();
+                    lodFrames[tag] = img;
+                    RiverSurfaceDiagnostics d = visual.RiverSurface.Diagnostics;
+                    Save(img, $"B_lod_{tag}", "G.2E LOD", $"plains channel descent/ascent {tag}: levels far {d.FarPieces} mid {d.MidPieces} near {d.NearPieces}, samples {d.DisplayedSamples}");
+                }
+                log.Append(string.Format(Inv, "\nLOD descent / ascent on the plains channel: 5 km down vs up differs on {0:0.00} % of pixels, 500 m down vs up {1:0.00} %", Changed(lodFrames["5km"], lodFrames["5km_up"]), Changed(lodFrames["500m"], lodFrames["500m_up"])));
+            }
+
+            // ---- Plateau / plain regression (seed 310929): both terrains, 2 km (the G.2D viewpoints).
+            {
+                var regression = new[]
+                {
+                    ("plateau", new Vector3d(0.131565, 0.508858, -0.850737), new Vector3d(-0.894736, 0.430425, 0.119085)),
+                    ("plain310929", new Vector3d(-0.195978, 0.181058, 0.963748), new Vector3d(0.727489, -0.632164, 0.266699)),
+                };
+                host.Definition.seed = 310929;
+                foreach ((string config, int beds) in new[] { ("A", 0), ("B", 1) })
+                {
+                    host.Definition.riverBeds = beds;
+                    host.Regenerate();
+                    planet = host.Current;
+                    explorer.Planet = planet;
+                    visual.RefreshColors();
+                    foreach ((string name, Vector3d at0, Vector3d facing0) in regression)
+                    {
+                        Vector3d at = at0.Normalized;
+                        LightPoint(at, 0.55f);
+                        Pose(at, 2000.0, (facing0 - at * Vector3d.Dot(facing0, at)).Normalized, -12.0);
+                        SettleRivers();
+                        Color32[] img = Render();
+                        frames[$"{config}_{name}"] = img;
+                        Save(img, $"{config}_{name}_2km_pbr", "G.2E " + config, $"seed 310929 {name}, 2 km, riverBeds {beds}");
+                        if (config == "B") log.Append(string.Format(Inv, "\n{0} (seed 310929, 2 km): A vs B changed pixels {1:0.0} %", name, Changed(frames["A_" + name], img)));
+                    }
+                }
+            }
+
+            File.WriteAllText(Path.Combine(Out, "captures.md"), "# V0.2.0G.2E A / B captures (batch, EditMode rendering; A = riverBeds 0 (the G.2B terrain), B = riverBeds 1)\n\n" + meta);
+            File.WriteAllText(Path.Combine(Out, "measurements.txt"), log.ToString().Trim() + "\n");
+            Debug.Log("VALIDATION" + log);
+            if (target != null) Object.DestroyImmediate(target);
+            if (readback != null) Object.DestroyImmediate(readback);
+        }
+    }
+}

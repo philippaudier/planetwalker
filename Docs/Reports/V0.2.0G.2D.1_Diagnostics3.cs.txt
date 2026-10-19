@@ -1,0 +1,92 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
+using NUnit.Framework;
+using Planetwalker.Core;
+using Planetwalker.Generation;
+using Planetwalker.Persistence;
+using Planetwalker.Rendering;
+using UnityEngine;
+
+namespace Planetwalker.Tests
+{
+    /// <summary>Where the largest snap offsets come from, and which coastal extension samples sit on land cells.</summary>
+    public class G2D3Diag
+    {
+        static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+
+        [Test]
+        public void Run()
+        {
+            var log = new StringBuilder();
+            var c = new WorldConfiguration();
+            c.Hydrology.riverNetworkThreshold = 1e-5f;
+            PlanetDefinition def = c.Terrain.Clone(); def.seed = 1337; def.surfaceDetail = true; def.regionalLandforms = 1f; def.erosionStrength = 1f; def.erosionModel = 1;
+            var planet = new PlanetInstance(def);
+            double R = planet.Scale.RadiusMeters;
+            var hydrology = new HydrologySystem().Compute(new HydrologyGrid(c.Hydrology.resolution), planet);
+            HydrologyGrid grid = hydrology.Grid;
+            var system = new RiverNetworkSystem();
+            RiverNetwork network = system.Build(hydrology, c.Hydrology.riverNetworkThreshold);
+            system.BuildPaths(network, c.Rivers.SmoothingIterations);
+            var faces = new Mesh[CubeSphereGenerator.FaceCount];
+            var mb = new PlanetMeshBuilder();
+            for (int f = 0; f < faces.Length; f++) { faces[f] = new Mesh(); mb.BuildFace(faces[f], f, planet, PlanetColorRamp.CreateDefault()); }
+            var sampler = new PlanetSurfaceSampler();
+            sampler.Capture(faces, def.resolution);
+            var spine = new RiverRibbonBuilder();
+            spine.BuildGeometry(network, sampler, planet, c.Rivers, null, null, false);
+            ValleyNetwork valleys = planet.Height.SurfaceDetail.Landforms.Valleys;
+            var corridors = new RiverCorridorMap(network, valleys, R);
+            var surface = new RiverSurface();
+            surface.Rebuild(planet, network, spine, corridors, 1f, 0);
+
+            // Largest offsets.
+            var worst = new List<(float offset, int i)>();
+            for (int i = 0; i < surface.SpineSampleCount; i++)
+            {
+                surface.GetSpineSample(i, out _, out _, out float w, out float off, out _);
+                if (w > 0.5f) worst.Add((off, i));
+            }
+            worst.Sort((x, y) => y.offset.CompareTo(x.offset));
+            for (int k = 0; k < Math.Min(8, worst.Count); k++)
+            {
+                int i = worst[k].i;
+                surface.GetSpineSample(i, out Vector3d d, out float hw, out float w, out float off, out _);
+                Vector3 legacy = surface.GetSpineLegacy(i);
+                int river = surface.GetSpineRiver(i);
+                River data = network.GetRiver(river);
+                int cell = grid.CellFromDirection(legacy);
+                int r = 0; while (r + 1 < surface.RibbonCount && surface.GetRibbonStart(r + 1) <= i) r++;
+                int a = surface.GetRibbonStart(r), b = surface.GetRibbonStart(r + 1);
+                int builderCount = spine.GetSpineStart(r + 1) - spine.GetSpineStart(r);
+                float param = spine.GetSpineSample(Math.Min(spine.GetSpineStart(r) + (i - a), spine.GetSpineStart(r + 1) - 1)).Param;
+                log.AppendLine(string.Format(Inv, "offset {0:0} m: sample {1} (ribbon {2}, index {3} of {4} builder + {5} appended), river {6} (nodes {7}, parent {8}, junction {9}, mouth {10}), param {11:0.00}, legacy cell {12} channel {13}, receiver channel {14}, weight {15:0.00}",
+                    off, i, r, i - a, builderCount, b - a - builderCount, river, data.NodeCount, data.ParentRiver, data.JunctionCell, data.MouthCell, param, cell, valleys.IsChannel(cell),
+                    hydrology.GetReceiver(cell) >= 0 && valleys.IsChannel(hydrology.GetReceiver(cell)), w));
+            }
+            // Coastal extension samples on land cells.
+            for (int r = 0; r < surface.RibbonCount; r++)
+            {
+                int a = surface.GetRibbonStart(r), b = surface.GetRibbonStart(r + 1);
+                int builderCount = spine.GetSpineStart(r + 1) - spine.GetSpineStart(r);
+                for (int i = a + builderCount; i < b; i++)
+                {
+                    Vector3 legacy = surface.GetSpineLegacy(i);
+                    int cell = grid.CellFromDirection(legacy);
+                    if (hydrology.IsLand(cell))
+                    {
+                        River data = network.GetRiver(surface.GetSpineRiver(a));
+                        log.AppendLine(string.Format(Inv, "appended sample on land: ribbon {0} index {1} (builder {2}, appended {3}), river {4} parent {5} mouth {6}: this is a {7}",
+                            r, i - a, builderCount, b - a - builderCount, data.Id, data.ParentRiver, data.MouthCell, data.MouthCell >= 0 && data.ParentRiver < 0 ? "coastal extension" : "confluence sample"));
+                    }
+                }
+            }
+            surface.Dispose();
+            foreach (Mesh m in faces) UnityEngine.Object.DestroyImmediate(m);
+            System.IO.File.WriteAllText(@"C:\Users\Philippe\AppData\Local\Temp\claude\C--Users-Philippe-Documents-Programming-Unity-Projects-planetwalker\92a57fea-0dca-4c6f-a05a-b46236670522\scratchpad\g2d3diag.txt", log.ToString());
+            UnityEngine.Debug.Log("DIAG\n" + log);
+        }
+    }
+}

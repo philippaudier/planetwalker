@@ -1,0 +1,46 @@
+Default configuration, seed 1337, hydrology 128, threshold 1E-05, riverBeds 1: 9495 rivers, 6452 ribbons, 99195 spine samples; channel cells 16130 (674 valley cells), 76624 segments; corridors: 21393 / 32190 trajectory nodes on channels, matched 16130 / mismatched 0; snapped 83909 / 102399 spine samples
+torrent: at (-0.851710, 0.406050, 0.331230); rocky mountain stream; drained 11 cells, gradient 0.7732, development 1.00, channel half width 50 m, depth 12.0 m, bank 30 m, floodplain half width 0 m, incision 734 m, kappa_n +0.11
+gorge: at (-0.969627, 0.242044, 0.035193); deepest incision; drained 23 cells, gradient 0.1354, development 1.00, channel half width 70 m, depth 15.2 m, bank 42 m, floodplain half width 0 m, incision 904 m, kappa_n +0.09
+plain: at (-0.947451, -0.140776, -0.287262); widest low-gradient alluvial channel; drained 556 cells, gradient 0.0000, development 1.00, channel half width 820 m, depth 35.0 m, bank 1500 m, floodplain half width 4917 m, incision 0 m, kappa_n +0.08
+meander: at (-0.696641, 0.705605, -0.129664); tightest bend on the plains; drained 20 cells, gradient 0.0000, development 0.91, channel half width 106 m, depth 8.5 m, bank 240 m, floodplain half width 586 m, incision 0 m, kappa_n +1.00
+head: at (-0.956242, 0.123954, -0.265022); channel head on the plains, development 0.25-0.7; drained 10 cells, gradient 0.0045, development 0.85, channel half width 47 m, depth 7.0 m, bank 45 m, floodplain half width 0 m, incision 0 m, kappa_n +0.01
+confluence: at (-0.929702, -0.202992, -0.307324); plains confluence; drained 374 cells, gradient 0.0000, development 1.00, channel half width 672 m, depth 22.3 m, bank 1500 m, floodplain half width 4029 m, incision 0 m, kappa_n -0.10
+mouth: at (-0.976050, -0.083631, -0.200830); last channel segment above the sea of the largest river; drained 583 cells, gradient 0.0605, development 1.00, channel half width 820 m, depth 48.8 m, bank 1500 m, floodplain half width 4917 m, incision 0 m, kappa_n +0.04
+torrent 20km: A vs B changed pixels 73.7 %
+torrent 2km: A vs B changed pixels 55.2 %
+torrent 200m: A vs B changed pixels 63.5 %
+torrent 20m: A vs B changed pixels 68.1 %
+Probe torrent (B): terrain 73516.2 m above the sea, explorer floor 73516.2 m, camera 20.0 m above the floor
+gorge 20km: A vs B changed pixels 8.5 %
+gorge 2km: A vs B changed pixels 43.0 %
+gorge 200m: A vs B changed pixels 46.9 %
+gorge 20m: A vs B changed pixels 52.7 %
+Probe gorge (B): terrain 5912.4 m above the sea, explorer floor 5912.4 m, camera 20.0 m above the floor
+plain 20km: A vs B changed pixels 46.9 %
+plain 2km: A vs B changed pixels 64.4 %
+plain 200m: A vs B changed pixels 19.1 %
+plain 20m: A vs B changed pixels 97.9 %
+Probe plain (B): terrain 31644.9 m above the sea, explorer floor 31644.9 m, camera 20.0 m above the floor
+meander 20km: A vs B changed pixels 13.7 %
+meander 2km: A vs B changed pixels 43.0 %
+meander 200m: A vs B changed pixels 45.8 %
+meander 20m: A vs B changed pixels 48.8 %
+Probe meander (B): terrain 35674.8 m above the sea, explorer floor 35674.8 m, camera 20.0 m above the floor
+head 20km: A vs B changed pixels 10.9 %
+head 2km: A vs B changed pixels 42.2 %
+head 200m: A vs B changed pixels 49.9 %
+head 20m: A vs B changed pixels 51.4 %
+Probe head (B): terrain 620.2 m above the sea, explorer floor 620.2 m, camera 20.0 m above the floor
+confluence 20km: A vs B changed pixels 7.5 %
+confluence 2km: A vs B changed pixels 52.8 %
+confluence 200m: A vs B changed pixels 32.6 %
+confluence 20m: A vs B changed pixels 12.3 %
+Probe confluence (B): terrain 35250.4 m above the sea, explorer floor 35250.4 m, camera 20.0 m above the floor
+mouth 20km: A vs B changed pixels 21.1 %
+mouth 2km: A vs B changed pixels 46.6 %
+mouth 200m: A vs B changed pixels 9.2 %
+mouth 20m: A vs B changed pixels 99.5 %
+Probe mouth (B): terrain 1561.9 m above the sea, explorer floor 1561.9 m, camera 20.0 m above the floor
+LOD descent / ascent on the plains channel: 5 km down vs up differs on 0.99 % of pixels, 500 m down vs up 0.43 %
+plateau (seed 310929, 2 km): A vs B changed pixels 5.4 %
+plain310929 (seed 310929, 2 km): A vs B changed pixels 0.0 %

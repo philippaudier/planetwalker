@@ -1,0 +1,26 @@
+# V0.2.0G.2B terrain fingerprint (recorded before G.2E on the unmodified tree): FNV-1a 64 over float bits of 20000 spiral directions
+default1337: canonical 2ba01347cec7b9ff legacy128 cffedffa084bef7c spacing 0.0245436933 first 0.00161867426/0.001614835 0.0008347219/0.0008334677 -0.000345882145/-0.000345863053 0.00177420408/0.00177238812 -0.000952333154/-0.0009522891 0.00184366631/0.00184647727 0.001191593/0.00119318767 -0.0061895824/-0.00618962664
+default1337: hydrology 64: receivers aa72d5bc7b9de29a land e2388b604c3f61f4 accumulation 6f22356f43674399 basins 1696 depressions 41 landCells 7095 outlet -1
+default1337: hydrology 128: receivers 4dc56ef4a0d1e635 land b523a11abe1d3fe5 accumulation 61dcfc570a9c06ea basins 3699 depressions 218 landCells 28422 outlet -1
+default1337: valleys: segments 2992 channels 674 hash 3bd11933ce9eeb60 receivers 16f5aff106f78d7b
+default1337: landFraction 0.289306641 minElevation -0.03699081 maxElevation 0.0263430718
+default310929: canonical 7b6040083f7da2ad legacy128 d6cb38192e6e4c7a spacing 0.0245436933 first -0.0169714671/-0.0169714484 -0.008900137/-0.008900115 -0.019918235/-0.0199182313 -0.0141744576/-0.0141744437 -0.0101260236/-0.01012606 -0.021746479/-0.02174648 -0.004838084/-0.0048380415 -0.0194973219/-0.0194973238
+default310929: hydrology 64: receivers a39ca26f72077ffb land c30652c8cd5b9555 accumulation 7fd5055e689d0d3c basins 1765 depressions 155 landCells 11264 outlet -1
+default310929: hydrology 128: receivers ced1bb6c5df511f3 land d462eeae453f4db4 accumulation 4fdd8ed77c1a8b77 basins 3875 depressions 571 landCells 45027 outlet -1
+default310929: valleys: segments 20076 channels 4226 hash c21e79887d4b8d2a receivers 93d17bd6fe80e3f2
+default310929: landFraction 0.455810547 minElevation -0.0342878252 maxElevation 0.0448393933
+tweaked536452: canonical 72ba3cd5e08845d0 legacy128 7db57386b94755c1 spacing 0.0490873866 first -0.00121978461/-0.00121981127 -0.01812757/-0.0181274116 -0.00234110327/-0.0023411205 0.00164381764/0.0016438181 -0.02934542/-0.0293454342 0.00113175262/0.001131761 -0.009034159/-0.009034146 -0.01708008/-0.01708009
+tweaked536452: hydrology 64: receivers 35111e42a1e74242 land 45d3611ce7367815 accumulation 1baf92d576c72159 basins 2045 depressions 62 landCells 5918 outlet -1
+tweaked536452: hydrology 128: receivers c3f955298b0336a0 land d82abb823e0fe804 accumulation 7ad1e36cef5c5cad basins 4723 depressions 262 landCells 23767 outlet -1
+tweaked536452: valleys: segments 8716 channels 1882 hash 17b6d0071e362ac4 receivers 0d24343145b0bf2b
+tweaked536452: landFraction 0.2409668 minElevation -0.04448704 maxElevation 0.03897498
+tweaked1337fluvial: canonical eeddc0ac87e8f611 legacy128 a49bcc776e46bad7 spacing 0.0490873866 first 0.0102277128/0.01020917 0.0111622866/0.01117334 0.0104593346/0.0104342811 0.01106556/0.0109521067 0.0113568539/0.0113720875 0.009331253/0.009555115 0.0106082233/0.0105927009 0.00989256/0.00997686852
+tweaked1337fluvial: hydrology 64: receivers 4431b0b72f613b3c land 4b6af04793f0d5d5 accumulation ed35da97d939c84f basins 1953 depressions 70 landCells 6232 outlet -1
+tweaked1337fluvial: hydrology 128: receivers ea531ad0c20be62c land 101688533e82bf05 accumulation 369e26eb43380f30 basins 4508 depressions 219 landCells 24900 outlet -1
+tweaked1337fluvial: valleys: segments 5948 channels 1314 hash 11c4740f4bb0fa9a receivers bb3da50191af7c88
+tweaked1337fluvial: landFraction 0.249633789 minElevation -0.04537215 maxElevation 0.0446863323
+default1337noErosion: canonical 0f961a0646d905ab legacy128 cffedffa084bef7c spacing 0.0245436933 first 0.00161867426/0.001614835 0.0008347219/0.0008334677 -0.000345882145/-0.000345863053 0.00177420408/0.00177238812 -0.000952333154/-0.0009522891 0.00184366631/0.00184647727 0.001191593/0.00119318767 -0.0061895824/-0.00618962664
+default1337noErosion: hydrology 64: receivers aa72d5bc7b9de29a land e2388b604c3f61f4 accumulation 6f22356f43674399 basins 1696 depressions 41 landCells 7095 outlet -1
+default1337noErosion: hydrology 128: receivers 4dc56ef4a0d1e635 land b523a11abe1d3fe5 accumulation 61dcfc570a9c06ea basins 3699 depressions 218 landCells 28422 outlet -1
+default1337noErosion: valleys: segments 2992 channels 674 hash 3bd11933ce9eeb60 receivers 16f5aff106f78d7b
+default1337noErosion: landFraction 0.289306641 minElevation -0.03699081 maxElevation 0.0263430718

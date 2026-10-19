@@ -299,6 +299,8 @@ namespace Planetwalker.Generation
         const float SlopeEnd = 0.15f;
         const float ValleyFloor = -0.55f;
         const float ValleyFloorSoftness = 0.2f;
+        /// <summary>V0.2.0G.2E: micro band damped on a river bed's floor (channel, banks, floodplain) by 50 %, and by another 60 % in the active channel (20 % left under the water).</summary>
+        const float BedFloorCalm = 0.5f, BedMicroCalm = 0.6f;
 
         readonly int characterSeed;
         readonly int[] octaveSeeds;
@@ -408,11 +410,17 @@ namespace Planetwalker.Generation
                 edge = sample.Landforms.Edge;
             }
             // Erosion (V0.2.0G.2A) on the landform-shaped terrain, before the fine bands (which then read the eroded height).
+            float bed = 0f, bedFloor = 0f;
             if (Erosion != null)
             {
                 Erosion.Evaluate(precise, direction, context, sample.Landforms, landformSpacing, out ErosionSample erosion);
                 sample.Erosion = erosion.Displacement;
                 h += sample.Erosion;
+                // V0.2.0G.2E: a river bed calms the micro band only (a few meters at 80 m - 1.5 km: the bed's own scale). The
+                // regional and local bands (tens to hundreds of meters, kilometers wide) are left alone: damping them inside
+                // a strip a few hundred meters wide would cut a step of their amplitude along every bank.
+                bed = erosion.Bed;
+                bedFloor = erosion.Floor;
             }
             if (Profile.OctaveCount == 0)
             {
@@ -439,6 +447,10 @@ namespace Planetwalker.Generation
             }
             float maskMicro = SmoothStep(0f, coastBand[2], h) * Mathf.Lerp(0.6f, 1f, dissection) * boostMicro * Mathf.Lerp(1f, 0.35f, smooth) * Mathf.Lerp(1f, 1.3f, rugged);
             maskMicro *= 1f - 0.5f * calm; // valley floors and plateau tops: smoother ground (0 without landforms)
+            if (bedFloor > 0f)
+            {
+                maskMicro *= (1f - BedFloorCalm * bedFloor) * (1f - BedMicroCalm * bed); // V0.2.0G.2E: bed floor, and the active channel under the water
+            }
             if (maskRegional <= 0f && maskLocal <= 0f && maskMicro <= 0f)
             {
                 return;

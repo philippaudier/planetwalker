@@ -116,7 +116,8 @@ namespace Planetwalker.Tests
             Vector3d flow = net.Nearest(dir, out ValleyNetwork.ChannelQuery qq) ? qq.Flow : Vector3d.Right;
             flow = (flow - dir * Vector3d.Dot(flow, dir)).Normalized;
             maxTick = 0; sumTick = 0; int builds0 = surface.Diagnostics.CompletedBuilds; int uploads0 = surface.Diagnostics.Uploads; int groups0 = surface.Diagnostics.GroupRebuilds;
-            double maxAssemble = 0;
+            double maxAssemble = 0, maxUpload = 0;
+            var ticks = new List<double>(); var assembles = new List<double>();
             alloc0 = GC.GetAllocatedBytesForCurrentThread();
             for (int i = 0; i < 240; i++)
             {
@@ -126,14 +127,39 @@ namespace Planetwalker.Tests
                 sw.Restart();
                 surface.Tick(v);
                 double t = sw.Elapsed.TotalMilliseconds;
-                maxTick = Math.Max(maxTick, t); sumTick += t;
+                maxTick = Math.Max(maxTick, t); sumTick += t; ticks.Add(t); assembles.Add(surface.Diagnostics.AssembleMilliseconds);
                 maxAssemble = Math.Max(maxAssemble, surface.Diagnostics.AssembleMilliseconds);
+                maxUpload = Math.Max(maxUpload, surface.Diagnostics.UploadMilliseconds);
                 Thread.Sleep(4);
             }
             alloc1 = GC.GetAllocatedBytesForCurrentThread();
+            ticks.Sort(); assembles.Sort();
             RiverSurfaceDiagnostics dm = surface.Diagnostics;
-            log.AppendLine(string.Format(Inv, "moving ticks at ground (240 x 10 m): mean {0:0.000} ms, max {1:0.00} ms (assembly max {2:0.00} ms), allocated {3} bytes per tick; builds {4}, near uploads {5}, group rebuilds {6}, pending at the end {7}, evictions {8}",
-                sumTick / 240, maxTick, maxAssemble, (alloc1 - alloc0) / 240, dm.CompletedBuilds - builds0, dm.Uploads - uploads0, dm.GroupRebuilds - groups0, dm.PendingBuilds, dm.Evictions));
+            log.AppendLine(string.Format(Inv, "moving ticks at ground (240 x 10 m): mean {0:0.000} ms, p95 {1:0.00} ms, max {2:0.00} ms (assembly p95 {3:0.00} max {4:0.00} ms, of which mesh upload max {5:0.00} ms), allocated {6} bytes per tick; builds {7}, near uploads {8}, group rebuilds {9}, pending at the end {10}, evictions {11}",
+                sumTick / 240, ticks[(int)(ticks.Count * 0.95)], maxTick, assembles[(int)(assembles.Count * 0.95)], maxAssemble, maxUpload, (alloc1 - alloc0) / 240, dm.CompletedBuilds - builds0, dm.Uploads - uploads0, dm.GroupRebuilds - groups0, dm.PendingBuilds, dm.Evictions));
+            // Descent then ascent: 2 000 km -> 100 m -> 2 000 km in 24 steps each way, ticking until nothing is pending.
+            double maxDescent = 0, maxAscent = 0; int rebuildsDescent, rebuildsAscent; groups0 = surface.Diagnostics.GroupRebuilds;
+            for (int phase = 0; phase < 2; phase++)
+            {
+                for (int i = 0; i <= 24; i++)
+                {
+                    double f = phase == 0 ? i / 24.0 : 1.0 - i / 24.0;
+                    double meters = Math.Exp(Math.Log(2.0e6) + (Math.Log(100.0) - Math.Log(2.0e6)) * f);
+                    float altitude = (float)(meters / R) * planet.Radius;
+                    var v = new RiverSurfaceView(dir * (ground + altitude), altitude, view.PixelsPerRadian);
+                    for (int k = 0; k < 40; k++)
+                    {
+                        sw.Restart();
+                        surface.Tick(v);
+                        double t = sw.Elapsed.TotalMilliseconds;
+                        if (phase == 0) maxDescent = Math.Max(maxDescent, t); else maxAscent = Math.Max(maxAscent, t);
+                        if (surface.Diagnostics.PendingBuilds == 0 && k > 8) break;
+                        Thread.Sleep(2);
+                    }
+                }
+                if (phase == 0) { rebuildsDescent = surface.Diagnostics.GroupRebuilds - groups0; groups0 = surface.Diagnostics.GroupRebuilds; log.AppendLine(string.Format(Inv, "descent 2 000 km -> 100 m (25 stops): max tick {0:0.00} ms, mid rebuilds {1}, displayed samples at the ground {2}", maxDescent, rebuildsDescent, surface.Diagnostics.DisplayedSamples)); }
+                else { rebuildsAscent = surface.Diagnostics.GroupRebuilds - groups0; log.AppendLine(string.Format(Inv, "ascent 100 m -> 2 000 km: max tick {0:0.00} ms, mid rebuilds {1}, displayed samples in orbit {2}, cache {3:0.0} MB, evictions {4}", maxAscent, rebuildsAscent, surface.Diagnostics.DisplayedSamples, surface.Diagnostics.CacheBytes / 1048576.0, surface.Diagnostics.Evictions)); }
+            }
 
             // Orbit view ticks (2 000 km).
             float orbit = (float)(2.0e6 / R) * planet.Radius;

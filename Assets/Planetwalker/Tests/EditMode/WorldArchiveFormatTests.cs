@@ -672,8 +672,8 @@ namespace Planetwalker.Tests
         [Test]
         public void T_GeneratorVersions_V013A_V013B_AndCurrent_AreExact_OlderStayBestEffort()
         {
-            Assert.AreEqual("Genesis V0.2.0G.2B", PlanetArchive.CurrentGeneratorVersion);
-            foreach (string exact in new[] { "Genesis V0.1.3A", "Genesis V0.1.3B", "Genesis V0.2.0C", "Genesis V0.2.0G.1", PlanetArchive.CurrentGeneratorVersion })
+            Assert.AreEqual("Genesis V0.2.0G.2E", PlanetArchive.CurrentGeneratorVersion);
+            foreach (string exact in new[] { "Genesis V0.1.3A", "Genesis V0.1.3B", "Genesis V0.2.0C", "Genesis V0.2.0G.1", "Genesis V0.2.0G.2B", PlanetArchive.CurrentGeneratorVersion })
             {
                 ArchiveReadResult read = ReadModified(j => ReplaceMember(j, "generatorVersion", "\"" + exact + "\""));
                 Assert.IsTrue(read.Ok, read.Report.Summary());
@@ -753,7 +753,7 @@ namespace Planetwalker.Tests
             Assert.GreaterOrEqual(ruggedness, 0);
             CollectionAssert.AreEqual(new[] { "radiusKilometers", "surfaceDetail", "regionalDetail", "localDetail", "microDetail" },
                 members.Skip(ruggedness + 1).Take(5), "Declaration order of the V0.2.0C fields");
-            CollectionAssert.AreEqual(new[] { "regionalLandforms", "erosionStrength", "erosionModel" }, members.Skip(ruggedness + 6), "Then the V0.2.0G.1, V0.2.0G.2A and V0.2.0G.2B fields, last");
+            CollectionAssert.AreEqual(new[] { "regionalLandforms", "erosionStrength", "erosionModel", "riverBeds" }, members.Skip(ruggedness + 6), "Then the V0.2.0G.1, V0.2.0G.2A, V0.2.0G.2B and V0.2.0G.2E fields, last");
             WorldArchiveTestUtil.Report(terrain.ToJson());
         }
     }

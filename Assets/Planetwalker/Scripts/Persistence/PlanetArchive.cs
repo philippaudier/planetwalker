@@ -16,7 +16,7 @@ namespace Planetwalker.Persistence
         public const int CurrentSchemaVersion = 1;
 
         /// <summary>Which procedural algorithms and defaults produce the planet (see <see cref="GeneratorCompatibility"/>).</summary>
-        public const string CurrentGeneratorVersion = "Genesis V0.2.0G.2B";
+        public const string CurrentGeneratorVersion = "Genesis V0.2.0G.2E";
 
         public const string DefaultName = "Unnamed World";
         public const int MaxNameLength = 80;

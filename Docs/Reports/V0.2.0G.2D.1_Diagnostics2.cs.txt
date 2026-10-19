@@ -1,0 +1,66 @@
+using System;
+using System.Globalization;
+using System.Text;
+using NUnit.Framework;
+using Planetwalker.Core;
+using Planetwalker.Generation;
+using Planetwalker.Persistence;
+using UnityEngine;
+
+namespace Planetwalker.Tests
+{
+    /// <summary>How far the legacy river drainage and the carved (e0) channels disagree on the default planet.</summary>
+    public class G2D2Diag
+    {
+        static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+
+        [Test]
+        public void Run()
+        {
+            var log = new StringBuilder();
+            var c = new WorldConfiguration();
+            c.Hydrology.riverNetworkThreshold = 1e-5f;
+            PlanetDefinition def = c.Terrain.Clone(); def.seed = 1337; def.surfaceDetail = true; def.regionalLandforms = 1f; def.erosionStrength = 1f; def.erosionModel = 1;
+            var planet = new PlanetInstance(def);
+            ValleyNetwork valleys = planet.Height.SurfaceDetail.Landforms.Valleys;
+            HydrologyResult carved = valleys.Hydrology;
+            HydrologyGrid grid = carved.Grid;
+            var legacy = new HydrologySystem().Compute(new HydrologyGrid(c.Hydrology.resolution), planet);
+            RiverNetwork network = new RiverNetworkSystem().Build(legacy, c.Hydrology.riverNetworkThreshold);
+            int channels = 0, channelsWithRiver = 0, sameReceiver = 0, riverCellsInRange = 0, riverCellsOnChannel = 0, riverCellsNextToChannel = 0;
+            for (int cell = 0; cell < grid.CellCount; cell++)
+            {
+                bool channel = valleys.IsChannel(cell);
+                bool river = network.IsRiverCell(cell);
+                if (channel)
+                {
+                    channels++;
+                    if (river) channelsWithRiver++;
+                    if (legacy.GetReceiver(cell) == carved.GetReceiver(cell)) sameReceiver++;
+                }
+                if (river && legacy.IsLand(cell))
+                {
+                    planet.Height.GetElevation(new Vector3d(grid.GetCenter(cell)), 0f, out TerrainBaseSample ctx);
+                    if (ctx.Influence >= ValleyNetwork.MinInfluence)
+                    {
+                        riverCellsInRange++;
+                        if (channel) riverCellsOnChannel++;
+                        else
+                        {
+                            bool near = false;
+                            for (int k = grid.GetNeighborStart(cell); k < grid.GetNeighborEnd(cell) && !near; k++) near = valleys.IsChannel(grid.GetNeighbor(k));
+                            if (near) riverCellsNextToChannel++;
+                        }
+                    }
+                }
+            }
+            // Receivers over all land cells: how often the two drainages route a cell to the same neighbour.
+            int land = 0, same = 0;
+            for (int cell = 0; cell < grid.CellCount; cell++) { if (!legacy.IsLand(cell)) continue; land++; if (legacy.GetReceiver(cell) == carved.GetReceiver(cell)) same++; }
+            log.AppendLine(string.Format(Inv, "carved channel cells {0}: with a legacy river on them {1} ({2:0.0} %), same receiver in both drainages {3}; legacy river cells in the ranges {4}: on a carved channel {5}, next to one {6}, elsewhere {7}; land cells with the same receiver in both drainages {8} / {9} ({10:0.0} %)",
+                channels, channelsWithRiver, 100.0 * channelsWithRiver / Math.Max(1, channels), sameReceiver, riverCellsInRange, riverCellsOnChannel, riverCellsNextToChannel, riverCellsInRange - riverCellsOnChannel - riverCellsNextToChannel, same, land, 100.0 * same / Math.Max(1, land)));
+            System.IO.File.WriteAllText(@"C:\Users\Philippe\AppData\Local\Temp\claude\C--Users-Philippe-Documents-Programming-Unity-Projects-planetwalker\92a57fea-0dca-4c6f-a05a-b46236670522\scratchpad\g2d2diag.txt", log.ToString());
+            UnityEngine.Debug.Log("DIAG\n" + log);
+        }
+    }
+}

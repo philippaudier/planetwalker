@@ -1,0 +1,4 @@
+ocean-bound ribbons 1189: last sample above the ocean on the level-0 surface 79, on the full canonical terrain 79, on the legacy mesh 32; last sample on a hydrology land cell 0
+elevated ends: height above the ocean p50 1972.0 m p90 4922.4 m max 9963.9 m; marching along the flow over ocean cells on the canonical terrain: sea reached for 77 (distance p50 19546 m p90 39092 m max 39092 m; max climb on the way p50 0.0 m p90 0.0 m; monotone descents 77), unreachable 2
+cross-sections on snapped samples 400 (20 m steps across the ribbon width): with terrain above the water (> 1 m) 400; share of the width above water p50 97.1 % p90 98.5 %; highest protrusion p50 260.0 m p90 427.2 m max 694.0 m; first bank (> 2 m) at p50 0.04 p10 0.02 of the half width; deepest floor below water p50 0.0 m p90 26.6 m
+spine samples outside any carved corridor (legacy trajectory, draped, no bed): 96131 / 99269 (96.8 %)

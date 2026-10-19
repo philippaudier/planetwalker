@@ -1,0 +1,136 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
+using NUnit.Framework;
+using Planetwalker.Core;
+using Planetwalker.Generation;
+using Planetwalker.Persistence;
+using Planetwalker.Rendering;
+using UnityEngine;
+
+namespace Planetwalker.Tests
+{
+    /// <summary>G.2D.1 diagnostics: elevated coastal mouths and terrain protrusions through broad water sheets (default planet, seed 1337).</summary>
+    public class G2D1Diag
+    {
+        static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+
+        [Test]
+        public void Run()
+        {
+            var log = new StringBuilder();
+            var c = new WorldConfiguration();
+            c.Hydrology.riverNetworkThreshold = 1e-5f;
+            PlanetDefinition def = c.Terrain.Clone(); def.seed = 1337; def.surfaceDetail = true; def.regionalLandforms = 1f; def.erosionStrength = 1f; def.erosionModel = 1;
+            var planet = new PlanetInstance(def);
+            double R = planet.Scale.RadiusMeters;
+            float ocean = planet.OceanRadius;
+            var hydrology = new HydrologySystem().Compute(new HydrologyGrid(c.Hydrology.resolution), planet);
+            HydrologyGrid grid = hydrology.Grid;
+            var system = new RiverNetworkSystem();
+            RiverNetwork network = system.Build(hydrology, c.Hydrology.riverNetworkThreshold);
+            system.BuildPaths(network, c.Rivers.SmoothingIterations);
+            var faces = new Mesh[CubeSphereGenerator.FaceCount];
+            var mb = new PlanetMeshBuilder();
+            for (int f = 0; f < faces.Length; f++) { faces[f] = new Mesh(); mb.BuildFace(faces[f], f, planet, PlanetColorRamp.CreateDefault()); }
+            var sampler = new PlanetSurfaceSampler();
+            sampler.Capture(faces, def.resolution);
+            var spine = new RiverRibbonBuilder();
+            spine.BuildGeometry(network, sampler, planet, c.Rivers, null, null, false);
+            var corridors = new RiverCorridorMap(network, planet.Height.SurfaceDetail.Landforms.Valleys, R);
+            var surface = new RiverSurface();
+            surface.Rebuild(planet, network, spine, corridors, 1f, 0);
+            float cellSpacing = Mathf.PI * 0.5f / grid.Resolution;
+
+            // ---- Mouths: every ribbon whose river ends at an ocean cell.
+            int oceanRibbons = 0, aboveL0 = 0, aboveFull = 0, legacyAbove = 0, endOnLandCell = 0;
+            var heights = new List<float>(); var reach = new List<float>(); var climbs = new List<float>();
+            int unreachable = 0, descending = 0;
+            for (int r = 0; r < surface.RibbonCount; r++)
+            {
+                int a = surface.GetRibbonStart(r), b = surface.GetRibbonStart(r + 1);
+                if (b - a < 2) continue;
+                River data = network.GetRiver(surface.GetSpineRiver(a));
+                if (data.MouthCell < 0) continue;
+                oceanRibbons++;
+                surface.GetSpineSample(b - 1, out Vector3d end, out _, out _, out _, out float e0);
+                float full = planet.Height.GetElevation(end);
+                float rFull = planet.Radius * (1f + full), rL0 = planet.Radius * (1f + e0);
+                float legacy = sampler.Sample(end.ToVector3()).magnitude;
+                if (rL0 >= ocean) aboveL0++;
+                if (rFull >= ocean) aboveFull++;
+                if (legacy >= ocean) legacyAbove++;
+                if (hydrology.IsLand(grid.CellFromDirection(end.ToVector3()))) endOnLandCell++;
+                if (rFull < ocean) continue;
+                heights.Add((float)((rFull - ocean) / planet.Radius * R));
+                // March along the final flow direction over ocean cells only (as ResolveMouth does), on the canonical
+                // surface: how far to the canonical sea, and whether the terrain descends on the way.
+                surface.GetSpineSample(b - 2, out Vector3d prev, out _, out _, out _, out _);
+                Vector3d dir = (end - prev); dir = (dir - end * Vector3d.Dot(dir, end)).Normalized;
+                Vector3d cur = end; float step = 0.25f * cellSpacing; float travelled = 0f; bool reached = false; float maxClimb = 0f; float last = rFull;
+                for (int k = 0; k < 80; k++)
+                {
+                    Vector3d t = dir - cur * Vector3d.Dot(dir, cur);
+                    if (t.Magnitude < 1e-12) break;
+                    cur = (cur + t.Normalized * step).Normalized; travelled += step;
+                    if (hydrology.IsLand(grid.CellFromDirection(cur.ToVector3()))) break;
+                    float h = planet.Radius * (1f + planet.Height.GetElevation(cur));
+                    maxClimb = Mathf.Max(maxClimb, (float)((h - last) / planet.Radius * R));
+                    last = h;
+                    if (h < ocean) { reached = true; break; }
+                }
+                if (reached) { reach.Add((float)(travelled * R)); climbs.Add(maxClimb); if (maxClimb < 5f) descending++; } else unreachable++;
+            }
+            heights.Sort(); reach.Sort(); climbs.Sort();
+            log.AppendLine(string.Format(Inv, "ocean-bound ribbons {0}: last sample above the ocean on the level-0 surface {1}, on the full canonical terrain {2}, on the legacy mesh {3}; last sample on a hydrology land cell {4}",
+                oceanRibbons, aboveL0, aboveFull, legacyAbove, endOnLandCell));
+            if (heights.Count > 0)
+                log.AppendLine(string.Format(Inv, "elevated ends: height above the ocean p50 {0:0.0} m p90 {1:0.0} m max {2:0.0} m; marching along the flow over ocean cells on the canonical terrain: sea reached for {3} (distance p50 {4:0} m p90 {5:0} m max {6:0} m; max climb on the way p50 {7:0.0} m p90 {8:0.0} m; monotone descents {9}), unreachable {10}",
+                    heights[heights.Count / 2], heights[(int)(heights.Count * 0.9)], heights[heights.Count - 1], reach.Count,
+                    reach.Count > 0 ? reach[reach.Count / 2] : 0, reach.Count > 0 ? reach[(int)(reach.Count * 0.9)] : 0, reach.Count > 0 ? reach[reach.Count - 1] : 0,
+                    climbs.Count > 0 ? climbs[climbs.Count / 2] : 0, climbs.Count > 0 ? climbs[(int)(climbs.Count * 0.9)] : 0, descending, unreachable));
+
+            // ---- Broad sheets: snapped samples, cross-sections at 20 m steps across the ribbon width (full canonical terrain).
+            int sections = 0, withIslands = 0; var islandShare = new List<float>(); var islandHeight = new List<float>(); var bankShare = new List<float>(); var floorDrop = new List<float>();
+            for (int i = 0; i < surface.SpineSampleCount && sections < 400; i += 3)
+            {
+                surface.GetSpineSample(i, out Vector3d d, out float hw, out float w, out _, out _);
+                if (w < 0.999f || hw <= 0f) continue;
+                sections++;
+                float water = planet.Height.GetElevation(d);
+                int r0 = surface.GetRibbonStart(0); // unused
+                Vector3d up = d, east = Vector3d.Cross(Math.Abs(d.y) < 0.9 ? Vector3d.Up : Vector3d.Right, d).Normalized;
+                // Side direction: perpendicular to the local flow (next sample), in the tangent plane.
+                Vector3d flow = east;
+                if (i + 1 < surface.SpineSampleCount) { surface.GetSpineSample(i + 1, out Vector3d n, out _, out _, out _, out _); Vector3d f = n - d; f -= d * Vector3d.Dot(f, d); if (f.Magnitude > 0) flow = f.Normalized; }
+                Vector3d side = Vector3d.Cross(d, flow).Normalized;
+                double hwM = hw * R; int steps = Math.Max(2, (int)(hwM / 20.0));
+                int above = 0, total = 0; float maxAbove = 0f; float bank = 2f * (float)hwM; float minFloor = 0f;
+                for (int s = -steps; s <= steps; s++)
+                {
+                    Vector3d q = (d + side * (s * 20.0 / R)).Normalized;
+                    float h = (float)((planet.Height.GetElevation(q) - water) * R);
+                    total++;
+                    if (h > 1f) { above++; maxAbove = Mathf.Max(maxAbove, h); }
+                    minFloor = Mathf.Min(minFloor, h);
+                    if (h > 2f && Math.Abs(s) * 20f < bank) bank = Math.Abs(s) * 20f;
+                }
+                islandShare.Add(100f * above / total); islandHeight.Add(maxAbove); bankShare.Add(bank / (float)hwM); floorDrop.Add(-minFloor);
+                if (above > 0) withIslands++;
+            }
+            islandShare.Sort(); islandHeight.Sort(); bankShare.Sort(); floorDrop.Sort();
+            log.AppendLine(string.Format(Inv, "cross-sections on snapped samples {0} (20 m steps across the ribbon width): with terrain above the water (> 1 m) {1}; share of the width above water p50 {2:0.0} % p90 {3:0.0} %; highest protrusion p50 {4:0.0} m p90 {5:0.0} m max {6:0.0} m; first bank (> 2 m) at p50 {7:0.00} p10 {8:0.00} of the half width; deepest floor below water p50 {9:0.0} m p90 {10:0.0} m",
+                sections, withIslands, islandShare[islandShare.Count / 2], islandShare[(int)(islandShare.Count * 0.9)], islandHeight[islandHeight.Count / 2], islandHeight[(int)(islandHeight.Count * 0.9)], islandHeight[islandHeight.Count - 1],
+                bankShare[bankShare.Count / 2], bankShare[(int)(bankShare.Count * 0.1)], floorDrop[floorDrop.Count / 2], floorDrop[(int)(floorDrop.Count * 0.9)]));
+            // Same on legacy-placed samples (draped edges): how the flat/draped blend behaves is not measured here.
+            int outside = 0; for (int i = 0; i < surface.SpineSampleCount; i++) { surface.GetSpineSample(i, out _, out _, out float w, out _, out _); if (w < 0.5f) outside++; }
+            log.AppendLine(string.Format(Inv, "spine samples outside any carved corridor (legacy trajectory, draped, no bed): {0} / {1} ({2:0.0} %)", outside, surface.SpineSampleCount, 100.0 * outside / surface.SpineSampleCount));
+
+            surface.Dispose();
+            foreach (Mesh m in faces) UnityEngine.Object.DestroyImmediate(m);
+            System.IO.File.WriteAllText(@"C:\Users\Philippe\AppData\Local\Temp\claude\C--Users-Philippe-Documents-Programming-Unity-Projects-planetwalker\92a57fea-0dca-4c6f-a05a-b46236670522\scratchpad\g2d1diag.txt", log.ToString());
+            UnityEngine.Debug.Log("DIAG\n" + log);
+        }
+    }
+}

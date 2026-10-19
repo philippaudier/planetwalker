@@ -12,6 +12,10 @@ namespace Planetwalker.Generation
         public float Displacement;
         /// <summary>How much of a channel the point is on, in [0, 1] (1 on an incised axis), for diagnostics.</summary>
         public float Channel;
+        /// <summary>River bed (V0.2.0G.2E): active channel weight (1 at a thalweg, 0 at the bank tops), band-limited.</summary>
+        public float Bed;
+        /// <summary>River bed (V0.2.0G.2E): floor weight (channel, banks and floodplain; 0 beyond the margin), band-limited: calms the octaves.</summary>
+        public float Floor;
     }
 
     /// <summary>Which erosion model a planet uses (archived with it: an older world never changes model silently).</summary>
@@ -98,14 +102,22 @@ namespace Planetwalker.Generation
         const float MaxHeightShare = 0.35f;
         const float FadeMeters = 2000f;
 
-        /// <summary>Displacement (fraction of the radius) a sample spacing cannot resolve: the incision narrower than it.</summary>
+        // River bed (V0.2.0G.2E): in the deepest gorges the bed tapers out (the incision's own floor is the channel there,
+        // and the incision bound stays what G.2B tested).
+        const float BedTaperStart = 0.6f, BedTaperEnd = 1f;
+
+        /// <summary>True when the stage carves a river bed along the whole network (V0.2.0G.2E).</summary>
+        public bool HasRiverBeds => Context.Valleys != null && Context.Valleys.WholeNetwork;
+
+        /// <summary>Displacement (fraction of the radius) a sample spacing cannot resolve: the incision and bed narrower than it.</summary>
         public float UnresolvedAmplitude(float spacing)
         {
             if (Context.Model == ErosionModel.None || Context.Valleys == null)
             {
                 return 0f;
             }
-            return (float)(Context.Valleys.UnresolvedIncisionMeters(spacing) * Math.Min(Context.Strength, 2f) / Context.Scale.RadiusMeters);
+            float strength = Math.Min(Context.Strength, 2f);
+            return (float)((Context.Valleys.UnresolvedIncisionMeters(spacing) + Context.Valleys.UnresolvedBedMeters(spacing)) * strength / Context.Scale.RadiusMeters);
         }
 
         /// <summary>
@@ -123,7 +135,8 @@ namespace Planetwalker.Generation
             }
             // The valley region of the landforms (0 outside the ranges), not on plateau blocks (exactly 0 from 80 % plateau).
             float region = landforms.Valley * (1f - SmoothStep(0.3f, 0.8f, landforms.Plateau));
-            if (region <= 0f)
+            bool beds = c.Valleys.WholeNetwork;
+            if (region <= 0f && !beds)
             {
                 return;
             }
@@ -133,16 +146,42 @@ namespace Planetwalker.Generation
             {
                 return;
             }
-            float incision = c.Valleys.Incision(precise, spacing, out float channel);
-            if (incision <= 0f)
+            // Fluvial incision (V0.2.0G.2B), inside the ranges only.
+            float incision = 0f, channel = 0f, raw = 0f;
+            if (region > 0f)
+            {
+                raw = c.Valleys.Incision(precise, spacing, out channel);
+                if (raw > 0f)
+                {
+                    float fade = SmoothStep(0f, FadeMeters, (float)heightMeters);
+                    incision = raw * (c.Strength * region * fade); // the G.2B operation order: bit-identical terrain
+                }
+            }
+            // River bed (V0.2.0G.2E), everywhere on land: the floodplain yields to the mountain valleys (which carve the
+            // valley floor there), the whole bed tapers out in the deepest gorges, nothing fades with the height: the
+            // height bound below extinguishes it at the coast, continuously (the coastline of e0 is kept exactly).
+            float bed = 0f, bedChannel = 0f, floor = 0f;
+            if (beds)
+            {
+                bed = c.Valleys.Bed(precise, spacing, 1f - landforms.Valley, out bedChannel, out floor);
+                if (bed > 0f)
+                {
+                    float taper = 1f - SmoothStep(BedTaperStart, BedTaperEnd, raw * region / ValleyNetwork.MaxIncisionMeters);
+                    bed *= c.Strength * taper;
+                    bedChannel *= taper;
+                    floor *= taper;
+                }
+            }
+            float total = incision + bed;
+            if (total <= 0f)
             {
                 return;
             }
-            float fade = SmoothStep(0f, FadeMeters, (float)heightMeters);
-            incision *= c.Strength * region * fade;
-            incision = Mathf.Min(incision, (float)heightMeters * MaxHeightShare);
-            sample.Displacement = (float)(-incision / radius);
+            total = Mathf.Min(total, (float)heightMeters * MaxHeightShare);
+            sample.Displacement = (float)(-total / radius);
             sample.Channel = channel * region;
+            sample.Bed = bedChannel;
+            sample.Floor = floor;
         }
 
         static float SmoothStep(float edge0, float edge1, float x)

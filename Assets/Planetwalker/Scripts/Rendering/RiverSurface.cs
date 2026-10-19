@@ -51,12 +51,20 @@ namespace Planetwalker.Rendering
         public double PrepassMilliseconds, PieceBuildMilliseconds;
         /// <summary>Main-thread time of the last tick: selection slice, assembly and mesh uploads.</summary>
         public double SelectionMilliseconds, AssembleMilliseconds;
+        /// <summary>Mesh uploads (SetVertices and friends) within the last tick's assembly.</summary>
+        public double UploadMilliseconds;
         public int CachedPieces;
         public long CacheBytes;
         public int DisplayedSamples, DisplayedVertices;
         /// <summary>Cache bytes of the displayed levels (never evicted) and spine samples appended at carved confluences.</summary>
         public long DisplayedBytes;
         public int ConfluenceSamples;
+        /// <summary>Ocean-bound ribbons continued to the canonical sea (V0.2.0G.2D.1), samples appended, and ribbons whose
+        /// end lies above the canonical ocean but could not reach it over ocean cells (left as they are).</summary>
+        public int CoastRibbons, CoastSamples, CoastUnreached;
+        /// <summary>Corridor spine samples whose edges stop at a bank inside the capped width, and the mean bank / capped half width.</summary>
+        public int BankedSamples;
+        public float MeanBankShare;
         public int FarPieces, MidPieces, NearPieces;
         public int PendingBuilds, CompletedBuilds, DiscardedBuilds, FailedBuilds;
         public int Uploads, GroupRebuilds, Evictions, MaskUploads;
@@ -101,6 +109,30 @@ namespace Planetwalker.Rendering
         public const float MinCorridorHalfWidthMeters = 60f;
         /// <summary>Snapping fades out this many spine samples before a lake transition sample (its shoreline is legacy geometry).</summary>
         const int LakeFadeSamples = 2;
+        /// <summary>
+        /// Coastal outlets (V0.2.0G.2D.1): a ribbon whose last sample lies above the ocean on the canonical terrain (the legacy
+        /// coast is not the canonical coast) is continued along its final flow direction, over hydrology ocean cells only,
+        /// until the canonical terrain is under the rendered ocean: marching step, spacing of the appended samples, and the
+        /// farthest reach (hydrology cells, as the legacy mouth extension).
+        /// </summary>
+        const double CoastStepMeters = 2500.0, CoastSampleMeters = 15000.0;
+        const float CoastReachCells = 4f;
+        /// <summary>
+        /// Banks (V0.2.0G.2D.1): inside a corridor the water surface lies a bounded depth above the bed at the axis, and each
+        /// edge is placed where the bed rises above that surface (marched in <see cref="BankSteps"/> steps of the capped half
+        /// width, then bisected), never closer than <see cref="MinBankMeters"/>: no edge buried hundreds of meters into a
+        /// gorge wall, no sheet spread over a broad floor; bumps lower than the depth are submerged, higher ones are islands.
+        /// Interior samples of fine pieces compute banks every 2^(level - BankStrideLevel) samples and interpolate.
+        /// </summary>
+        const float DepthPerHalfWidth = 0.004f, MinDepthMeters = 1f, MaxDepthMeters = 8f, MinBankMeters = 20f;
+        const int BankSteps = 8, BankBisections = 2, BankStrideLevel = 7;
+        /// <summary>
+        /// River beds (V0.2.0G.2E): inside a carved channel the displayed half width is the active channel's (the legacy
+        /// artistic width is only an upper bound), and the water stands this share of the thalweg depth above the bed: a
+        /// temporary rendering calibration, to be replaced by a physical water surface by the dynamic-water milestones.
+        /// </summary>
+        public const float WaterFillShare = 0.6f;
+        const float MinChannelHalfWidthMeters = 4f;
         const int SelectionSlices = 8;
         const int PrepassChunk = 512;
         const int MaxUploadsPerFrame = 6;
@@ -113,6 +145,12 @@ namespace Planetwalker.Rendering
         PlanetInstance planet;
         RiverNetwork network;
         RiverCorridorMap corridors;
+        // Coastal extensions per ribbon end (legacy end direction -> appended directions), computed once per planet and
+        // network: a width change rebuilds the spine without re-marching the coasts.
+        readonly Dictionary<Vector3, List<Vector3>> coastCache = new Dictionary<Vector3, List<Vector3>>();
+        readonly HashSet<Vector3> coastUnreachedEnds = new HashSet<Vector3>();
+        PlanetInstance coastPlanet;
+        RiverNetwork coastNetwork;
         float radius, oceanRadius, minRadius;
         double radiusMeters;
         int workerCount;
@@ -126,6 +164,8 @@ namespace Planetwalker.Rendering
         Vector3d[] spineDir = new Vector3d[0];
         Vector3[] spineSide = new Vector3[0];
         float[] spineHw = new float[0], spineWeight = new float[0], spineOffset = new float[0], spineResidual = new float[0];
+        float[] spineHwL = new float[0], spineHwR = new float[0];
+        float[] spineBedDepth = new float[0];
         float[] spineCenter0 = new float[0], spineLeft0 = new float[0], spineRight0 = new float[0];
         Vector3[] spineLeftPos0 = new Vector3[0], spineRightPos0 = new Vector3[0];
         int prepassChunks, prepassFinished;
@@ -154,6 +194,10 @@ namespace Planetwalker.Rendering
             public Vector3d[] Dir;
             public Vector3[] Side;
             public float[] Center, Left, Right, HalfWidth, Water, Mouth, Diag;
+            /// <summary>Per-side half widths (angular): the banks inside corridors, the capped half width elsewhere.</summary>
+            public float[] HalfWidthLeft, HalfWidthRight;
+            /// <summary>Corridor weight of each sample (1 inside a carved corridor, 0 on the legacy trajectory).</summary>
+            public float[] Weight;
             public Vector3[] LeftPos, RightPos;
             public int LastUsedFrame;
             public long Bytes;
@@ -202,6 +246,7 @@ namespace Planetwalker.Rendering
         readonly List<Vector4> sides = new List<Vector4>(), widths = new List<Vector4>();
         readonly List<int> triangles = new List<int>();
         int frame;
+        double uploadMilliseconds;
         RiverSurfaceDiagnostics diagnostics;
         Exception firstError;
 
@@ -250,6 +295,19 @@ namespace Planetwalker.Rendering
         public float GetLevelStep(int level) => levelStep[level];
         public float GetLevelError(int level) => levelError[level];
         /// <summary>Spine sample as placed by the prepass (direction snapped, width capped, level-0 elevation).</summary>
+        /// <summary>Legacy (pre-snap) direction of a spine sample.</summary>
+        public Vector3 GetSpineLegacy(int index) => spineLegacy[index];
+
+        /// <summary>Water depth at the axis (elevation fraction) for a capped half width (angular): what the surface adds above the bed inside corridors.</summary>
+        public float WaterDepth(float hw) => Depth(hw);
+
+        /// <summary>Bank half widths (angular) of a spine sample: the capped half width outside corridors.</summary>
+        public void GetSpineBanks(int index, out float left, out float right)
+        {
+            left = spineHwL[index];
+            right = spineHwR[index];
+        }
+
         public void GetSpineSample(int index, out Vector3d direction, out float halfWidth, out float weight, out float offsetMeters, out float elevation0)
         {
             direction = spineDir[index];
@@ -331,15 +389,84 @@ namespace Planetwalker.Rendering
                 if (last.WaterRadius > 0f || last.ClampToLake > 0) continue;
                 if (corridors.TryGetConfluence(last.River, out confluenceDir[r]))
                 {
+                    // V0.2.0G.2E: every junction is carved; when the junction point itself already snaps onto the end of its
+                    // curve (its legacy point lies past that end), the appended sample would coincide with it: skipped.
+                    Vector3d snappedLast = corridors.Snap(new Vector3d(last.Direction.normalized), last.River, last.Param, 1f, out _);
+                    if ((snappedLast - confluenceDir[r]).Magnitude * radiusMeters < 2.0)
+                    {
+                        continue;
+                    }
                     hasConfluence[r] = true;
                     confluences++;
                 }
             }
-            spineCount = spine.SpineSampleCount + confluences;
+            // Coastal outlets above the canonical ocean: continued to the sea (cached per planet and network).
+            if (coastPlanet != planet || coastNetwork != network)
+            {
+                coastCache.Clear();
+                coastUnreachedEnds.Clear();
+                coastPlanet = planet;
+                coastNetwork = network;
+            }
+            int coastTotal = 0, coastRibbons = 0, coastUnreached = 0;
+            var coastSamples = new List<Vector3>[ribbonCount];
+            // V0.2.0G.2E: a sea mouth point is on its channel (the terminal curve runs to the sea cell's center), and the
+            // legacy mouth extension past it (the same trajectory parameter, marched to the legacy sea) is translated as a
+            // whole so it starts from the snapped mouth, never snapped itself (it would collapse onto the curve's end).
+            var mouthIndex = new int[ribbonCount];
+            var mouthShift = new Vector3d[ribbonCount];
+            var mouthSnapped = new Vector3d[ribbonCount];
+            var mouthPrevious = new Vector3d[ribbonCount];
+            for (int r = 0; r < ribbonCount; r++)
+            {
+                mouthIndex[r] = int.MaxValue;
+                int a = spine.GetSpineStart(r), b = spine.GetSpineStart(r + 1);
+                if (b - a < 2 || hasConfluence[r] || !corridors.HasCorridors) continue;
+                RiverSpineSample last = spine.GetSpineSample(b - 1);
+                if (last.WaterRadius > 0f || last.ClampToLake > 0 || network.GetRiver(last.River).MouthCell < 0) continue;
+                int m = b - 1;
+                while (m > a && spine.GetSpineSample(m - 1).Param == last.Param) m--;
+                RiverSpineSample mouth = spine.GetSpineSample(m);
+                Vector3d legacyMouth = new Vector3d(mouth.Direction.normalized);
+                Vector3d snapped = corridors.Snap(legacyMouth, mouth.River, mouth.Param, 1f, out RiverCorridorMap.Projection proj);
+                if (proj.Weight < 0.999f) continue;
+                mouthIndex[r] = m;
+                mouthShift[r] = snapped - legacyMouth;
+                mouthSnapped[r] = snapped;
+                RiverSpineSample before = spine.GetSpineSample(Math.Max(a, m - 1));
+                mouthPrevious[r] = m > a ? corridors.Snap(new Vector3d(before.Direction.normalized), before.River, before.Param, 1f, out _) : snapped;
+            }
+            for (int r = 0; r < ribbonCount; r++)
+            {
+                int a = spine.GetSpineStart(r), b = spine.GetSpineStart(r + 1);
+                if (b - a < 2 || hasConfluence[r]) continue;
+                RiverSpineSample last = spine.GetSpineSample(b - 1);
+                if (last.WaterRadius > 0f || last.ClampToLake > 0 || network.GetRiver(last.River).MouthCell < 0) continue;
+                // The ribbon's actual end and the sample before it: the snapped mouth (and the snapped sample before it) when
+                // the ribbon ends at its mouth point, the translated legacy extension otherwise.
+                int m = mouthIndex[r];
+                Vector3 end = m == b - 1 ? mouthSnapped[r].ToVector3() : Shifted(spine.GetSpineSample(b - 1).Direction, r, b - 1, mouthIndex, mouthShift);
+                Vector3 beforeEnd = m == b - 1 ? mouthPrevious[r].ToVector3() : b - 2 == m ? mouthSnapped[r].ToVector3() : Shifted(spine.GetSpineSample(b - 2).Direction, r, b - 2, mouthIndex, mouthShift);
+                if (!coastCache.TryGetValue(end, out List<Vector3> extension))
+                {
+                    extension = CoastExtension(end, beforeEnd, out bool unreached);
+                    coastCache[end] = extension;
+                    if (unreached) coastUnreachedEnds.Add(end);
+                }
+                if (coastUnreachedEnds.Contains(end)) coastUnreached++; // per ribbon (several rivers can share a mouth)
+                if (extension != null && extension.Count > 0)
+                {
+                    coastSamples[r] = extension;
+                    coastTotal += extension.Count;
+                    coastRibbons++;
+                }
+            }
+            spineCount = spine.SpineSampleCount + confluences + coastTotal;
             Ensure(ref ribbonStart, ribbonCount + 1);
             Ensure(ref spineLegacy, spineCount); Ensure(ref spineHalfWidth, spineCount); Ensure(ref spineWater, spineCount); Ensure(ref spineMouth, spineCount);
             Ensure(ref spineParam, spineCount); Ensure(ref spineLakeScale, spineCount); Ensure(ref spineRiver, spineCount);
             Ensure(ref spineDir, spineCount); Ensure(ref spineSide, spineCount); Ensure(ref spineHw, spineCount); Ensure(ref spineWeight, spineCount);
+            Ensure(ref spineHwL, spineCount); Ensure(ref spineHwR, spineCount); Ensure(ref spineBedDepth, spineCount);
             Ensure(ref spineOffset, spineCount); Ensure(ref spineResidual, spineCount); Ensure(ref spineCenter0, spineCount); Ensure(ref spineLeft0, spineCount);
             Ensure(ref spineRight0, spineCount); Ensure(ref spineLeftPos0, spineCount); Ensure(ref spineRightPos0, spineCount);
             int n = 0;
@@ -350,13 +477,14 @@ namespace Planetwalker.Rendering
                 for (int i = a; i < b; i++, n++)
                 {
                     RiverSpineSample s = spine.GetSpineSample(i);
-                    spineLegacy[n] = s.Direction.normalized;
+                    bool extension = i > mouthIndex[r];
+                    spineLegacy[n] = extension ? Shifted(s.Direction, r, i, mouthIndex, mouthShift) : s.Direction.normalized;
                     spineHalfWidth[n] = s.HalfWidth;
                     spineWater[n] = s.WaterRadius;
                     spineMouth[n] = Mathf.Clamp01((s.Flare - 1f) / RiverRibbonBuilder.MouthFlare);
                     spineParam[n] = s.Param;
                     spineRiver[n] = s.River;
-                    spineLakeScale[n] = 1f;
+                    spineLakeScale[n] = extension ? 0f : 1f;
                 }
                 if (hasConfluence[r])
                 {
@@ -370,6 +498,21 @@ namespace Planetwalker.Rendering
                     spineRiver[n] = spineRiver[n - 1];
                     spineLakeScale[n] = 1f;
                     n++;
+                }
+                else if (coastSamples[r] != null)
+                {
+                    // Coastal continuation: the mouth's width, flare and parameter (no corridor past the mouth cell).
+                    foreach (Vector3 point in coastSamples[r])
+                    {
+                        spineLegacy[n] = point;
+                        spineHalfWidth[n] = spineHalfWidth[n - 1];
+                        spineWater[n] = 0f;
+                        spineMouth[n] = spineMouth[n - 1];
+                        spineParam[n] = spineParam[n - 1];
+                        spineRiver[n] = spineRiver[n - 1];
+                        spineLakeScale[n] = 0f; // legacy geometry: never snapped (V0.2.0G.2E: a sea mouth point itself is on its channel)
+                        n++;
+                    }
                 }
             }
             ribbonStart[ribbonCount] = n;
@@ -444,6 +587,9 @@ namespace Planetwalker.Rendering
             diagnostics.SpineSamples = spineCount;
             diagnostics.Pieces = pieceCount;
             diagnostics.ConfluenceSamples = confluences;
+            diagnostics.CoastRibbons = coastRibbons;
+            diagnostics.CoastSamples = coastTotal;
+            diagnostics.CoastUnreached = coastUnreached;
             diagnostics.TrajectoryNodes = corridors.NodeCount;
             diagnostics.ChannelNodes = corridors.ChannelNodes;
             diagnostics.MatchedLinks = corridors.MatchedLinks;
@@ -468,6 +614,10 @@ namespace Planetwalker.Rendering
             queued.Clear();
             foreach (Job job in inFlight.Values) job.Cancelled = true;
             inFlight.Clear();
+            // A job already running on a worker reads and writes the spine arrays this clear (and a rebuild) is about to
+            // replace: wait for it to notice its cancellation and leave (cooperative: a few samples; bounded).
+            var drain = Stopwatch.StartNew();
+            while (Volatile.Read(ref running) > 0 && drain.Elapsed.TotalSeconds < 5.0) Thread.Sleep(1);
             cache.Clear();
             endHeights.Clear();
             cacheBytes = 0;
@@ -544,8 +694,10 @@ namespace Planetwalker.Rendering
             Dispatch();
             diagnostics.SelectionMilliseconds = Elapsed(start);
             start = Stopwatch.GetTimestamp();
+            uploadMilliseconds = 0.0;
             Assemble(false);
             diagnostics.AssembleMilliseconds = Elapsed(start);
+            diagnostics.UploadMilliseconds = uploadMilliseconds;
             Evict();
             diagnostics.PendingBuilds = queued.Count + inFlight.Count;
             diagnostics.CachedPieces = cache.Count;
@@ -921,6 +1073,18 @@ namespace Planetwalker.Rendering
                 }
             }
             diagnostics.SnappedSamples = snapped;
+            int banked = 0; double bankShare = 0;
+            for (int i = 0; i < spineCount; i++)
+            {
+                if (spineWeight[i] > 0.999f && spineHw[i] > 0f)
+                {
+                    float share = 0.5f * (spineHwL[i] + spineHwR[i]) / spineHw[i];
+                    if (share < 0.999f) banked++;
+                    bankShare += share;
+                }
+            }
+            diagnostics.BankedSamples = banked;
+            diagnostics.MeanBankShare = snapped > 0 ? (float)(bankShare / snapped) : 1f;
             diagnostics.MeanOffsetMeters = snapped > 0 ? (float)(sumOffset / snapped) : 0f;
             diagnostics.MeanResidualMeters = snapped > 0 ? (float)(sumResidual / snapped) : 0f;
             diagnostics.MaxOffsetMeters = maxOffset;
@@ -943,6 +1107,83 @@ namespace Planetwalker.Rendering
             }
         }
 
+        /// <summary>A legacy direction past a ribbon's snapped sea mouth, translated by the mouth's snap (V0.2.0G.2E); unchanged before the mouth.</summary>
+        static Vector3 Shifted(Vector3 legacy, int ribbon, int index, int[] mouthIndex, Vector3d[] mouthShift)
+        {
+            return index >= mouthIndex[ribbon] ? (new Vector3d(legacy.normalized) + mouthShift[ribbon]).Normalized.ToVector3() : legacy.normalized;
+        }
+
+        /// <summary>
+        /// Continuation of an ocean-bound ribbon whose end is above the canonical ocean: marches along the final flow
+        /// direction over hydrology ocean cells, on the full canonical terrain, until it is under the rendered ocean
+        /// (then one more step so the end is hidden). Returns null when the end is already under water or the sea is not
+        /// reached within <see cref="CoastReachCells"/> cells without crossing a land cell (<paramref name="unreached"/>).
+        /// </summary>
+        List<Vector3> CoastExtension(Vector3 end, Vector3 previous, out bool unreached)
+        {
+            unreached = false;
+            PlanetHeightGenerator height = planet.Height;
+            if (radius * (1f + height.GetElevation(new Vector3d(end))) < oceanRadius)
+            {
+                return null;
+            }
+            HydrologyResult hydrology = network.Hydrology;
+            HydrologyGrid grid = hydrology.Grid;
+            var current = new Vector3d(end);
+            Vector3d flow = (new Vector3d(end) - new Vector3d(previous)).Normalized;
+            double step = CoastStepMeters / radiusMeters, sampleEvery = CoastSampleMeters / radiusMeters;
+            double reach = CoastReachCells * Mathf.PI * 0.5f / grid.Resolution, travelled = 0.0, sinceSample = 0.0;
+            var result = new List<Vector3>();
+            bool underWater = false;
+            while (travelled < reach)
+            {
+                // Direction: the final flow bent towards the local downhill of the canonical terrain (the river follows the
+                // beach's slope to the sea rather than a straight line), never turned back upstream.
+                Vector3d tangent = flow - current * Vector3d.Dot(flow, current);
+                if (tangent.Magnitude < 1e-12)
+                {
+                    break;
+                }
+                tangent = tangent.Normalized;
+                Vector3d e1 = tangent, e2 = Vector3d.Cross(current, e1).Normalized;
+                double h0 = height.GetElevation(current);
+                double g1 = height.GetElevation((current + e1 * step).Normalized) - h0, g2 = height.GetElevation((current + e2 * step).Normalized) - h0;
+                Vector3d downhill = -(e1 * g1 + e2 * g2);
+                if (downhill.Magnitude > 0.0 && Vector3d.Dot(downhill.Normalized, tangent) > -0.2)
+                {
+                    Vector3d bent = (tangent + downhill.Normalized * 0.5).Normalized;
+                    if (Vector3d.Dot(bent, tangent) > 0.0) { tangent = bent; flow = bent; }
+                }
+                current = (current + tangent * step).Normalized;
+                travelled += step;
+                sinceSample += step;
+                if (hydrology.IsLand(grid.CellFromDirection(current.ToVector3())))
+                {
+                    break; // never across land
+                }
+                bool under = radius * (1f + height.GetElevation(current)) < oceanRadius;
+                if (under || sinceSample >= sampleEvery)
+                {
+                    result.Add(current.ToVector3());
+                    sinceSample = 0.0;
+                }
+                if (under)
+                {
+                    if (underWater)
+                    {
+                        return result; // two samples under the sea: the end is hidden
+                    }
+                    underWater = true;
+                }
+            }
+            if (underWater)
+            {
+                return result;
+            }
+            unreached = true;
+            return null;
+        }
+
         /// <summary>Snaps, sides and places (level 0) a chunk of spine samples. Pure: reads the immutable inputs only.</summary>
         void RunPrepass(Job job)
         {
@@ -951,21 +1192,24 @@ namespace Planetwalker.Rendering
             // Pass 1: snap and widths.
             for (int i = a; i < b; i++)
             {
-                PlaceSample(spineLegacy[i], spineRiver[i], spineParam[i], spineLakeScale[i], spineHalfWidth[i], out spineDir[i], out spineHw[i], out spineWeight[i], out spineOffset[i], out spineResidual[i]);
+                if (job.Cancelled) return; // a rebuild is replacing the arrays
+                PlaceSample(spineLegacy[i], spineRiver[i], spineParam[i], spineLakeScale[i], spineHalfWidth[i], out spineDir[i], out spineHw[i], out spineWeight[i], out spineOffset[i], out spineResidual[i], out spineBedDepth[i]);
             }
             // Pass 2: sides from the neighbours along the ribbon (a neighbour of another chunk is re-placed: pure), heights
             // at the level-0 spacing.
             float step = levelStep[0];
             for (int i = a; i < b; i++)
             {
+                if (job.Cancelled) return;
                 int r = RibbonOf(i);
                 int prev = i > ribbonStart[r] ? i - 1 : i, next = i + 1 < ribbonStart[r + 1] ? i + 1 : i;
                 Vector3d dPrev = prev == i ? spineDir[i] : (prev >= a && prev < b ? spineDir[prev] : Placed(prev));
                 Vector3d dNext = next == i ? spineDir[i] : (next >= a && next < b ? spineDir[next] : Placed(next));
                 spineSide[i] = SideOf(spineDir[i], dPrev, dNext, i > a ? spineSide[i - 1] : Vector3.zero);
-                Heights(spineDir[i], spineSide[i], spineHw[i], spineWeight[i], step, out float c, out float l, out float rr);
+                Banks(spineDir[i], spineSide[i], spineHw[i], spineWeight[i], spineBedDepth[i], out spineHwL[i], out spineHwR[i]);
+                Heights(spineDir[i], spineSide[i], spineHw[i], spineWeight[i], spineBedDepth[i], step, out float c, out float l, out float rr);
                 spineCenter0[i] = c; spineLeft0[i] = l; spineRight0[i] = rr;
-                EdgePositions(spineDir[i], spineSide[i], spineHw[i], l, rr, out Vector3d left, out Vector3d right);
+                EdgePositions(spineDir[i], spineSide[i], spineHwL[i], spineHwR[i], l, rr, out Vector3d left, out Vector3d right);
                 spineLeftPos0[i] = left.ToVector3();
                 spineRightPos0[i] = right.ToVector3();
             }
@@ -974,7 +1218,7 @@ namespace Planetwalker.Rendering
 
         Vector3d Placed(int i)
         {
-            PlaceSample(spineLegacy[i], spineRiver[i], spineParam[i], spineLakeScale[i], spineHalfWidth[i], out Vector3d dir, out _, out _, out _, out _);
+            PlaceSample(spineLegacy[i], spineRiver[i], spineParam[i], spineLakeScale[i], spineHalfWidth[i], out Vector3d dir, out _, out _, out _, out _, out _);
             return dir;
         }
 
@@ -991,19 +1235,31 @@ namespace Planetwalker.Rendering
 
         /// <summary>The placed direction, capped half width and corridor data of a trajectory point (pure).</summary>
         void PlaceSample(Vector3 legacy, int river, float param, float lakeScale, float halfWidth,
-            out Vector3d direction, out float hw, out float weight, out float offset, out float residual)
+            out Vector3d direction, out float hw, out float weight, out float offset, out float residual, out float bedDepth)
         {
             direction = corridors.Snap(new Vector3d(legacy), river, param, lakeScale, out RiverCorridorMap.Projection proj);
             weight = proj.Weight;
             offset = proj.OffsetMeters;
             residual = proj.ResidualMeters;
             hw = halfWidth;
+            bedDepth = 0f;
             if (weight > 0f)
             {
-                float floor = proj.HalfWidthMeters;
-                if (proj.IncisionMeters > 0f && proj.IncisionHalfWidthMeters > 0f) floor = Mathf.Min(floor, proj.IncisionHalfWidthMeters);
-                float cap = Mathf.Min(FloorShare * floor, DepthShare * (proj.IncisionMeters + 0.25f * proj.DepthMeters));
-                cap = Mathf.Max(cap, MinCorridorHalfWidthMeters);
+                float cap;
+                if (proj.ChannelHalfWidthMeters > 0f)
+                {
+                    // V0.2.0G.2E: a carved river bed: the water fills the active channel (physically coherent width), never
+                    // the artistic ribbon width.
+                    cap = Mathf.Max(proj.ChannelHalfWidthMeters, MinChannelHalfWidthMeters);
+                    bedDepth = (float)(proj.ChannelDepthMeters / radiusMeters) * weight;
+                }
+                else
+                {
+                    float floor = proj.HalfWidthMeters;
+                    if (proj.IncisionMeters > 0f && proj.IncisionHalfWidthMeters > 0f) floor = Mathf.Min(floor, proj.IncisionHalfWidthMeters);
+                    cap = Mathf.Min(FloorShare * floor, DepthShare * (proj.IncisionMeters + 0.25f * proj.DepthMeters));
+                    cap = Mathf.Max(cap, MinCorridorHalfWidthMeters);
+                }
                 float capped = Mathf.Min(halfWidth, (float)(cap / radiusMeters));
                 hw = halfWidth + (capped - halfWidth) * weight;
             }
@@ -1024,12 +1280,14 @@ namespace Planetwalker.Rendering
 
         /// <summary>Band-limited elevations of a sample: its center, and its edges draped on the terrain outside corridors
         /// (flat water surface inside: the center's elevation).</summary>
-        void Heights(Vector3d dir, Vector3 side, float hw, float weight, float spacing, out float center, out float left, out float right)
+        void Heights(Vector3d dir, Vector3 side, float hw, float weight, float bedDepth, float spacing, out float center, out float left, out float right)
         {
             PlanetHeightGenerator height = planet.Height;
             center = height.GetSurfaceElevation(dir, spacing);
             if (weight >= 0.999f)
             {
+                // The water surface: a bounded depth above the bed (the river has a depth; bumps below it are submerged).
+                center += WaterDepth(hw, bedDepth);
                 left = right = center;
                 return;
             }
@@ -1040,18 +1298,65 @@ namespace Planetwalker.Rendering
             right = r + (center - r) * weight;
         }
 
-        void EdgePositions(Vector3d dir, Vector3 side, float hw, float left, float right, out Vector3d leftPos, out Vector3d rightPos)
+        /// <summary>Water depth at the axis (elevation fraction) for a capped half width (angular).</summary>
+        float Depth(float hw) => (float)(Mathf.Clamp(DepthPerHalfWidth * hw * (float)radiusMeters, MinDepthMeters, MaxDepthMeters) / radiusMeters);
+
+        /// <summary>Water depth at the axis (elevation fraction): in a carved river bed (V0.2.0G.2E) the fill share of the thalweg depth, at least the width rule.</summary>
+        float WaterDepth(float hw, float bedDepth) => bedDepth > 0f ? Mathf.Max(Depth(hw), WaterFillShare * bedDepth) : Depth(hw);
+
+        /// <summary>
+        /// Bank half widths of a corridor sample (pure, level independent: the full canonical terrain): on each side the first
+        /// point, marched then bisected, where the bed rises above the water surface. Outside corridors both are the capped half width.
+        /// </summary>
+        void Banks(Vector3d dir, Vector3 side, float hw, float weight, float bedDepth, out float hwL, out float hwR)
+        {
+            hwL = hwR = hw;
+            if (weight < 0.999f || hw <= 0f)
+            {
+                return;
+            }
+            PlanetHeightGenerator height = planet.Height;
+            float water = height.GetElevation(dir) + WaterDepth(hw, bedDepth);
+            float minBank = (float)(MinBankMeters / radiusMeters);
+            var s = new Vector3d(side);
+            for (int sign = -1; sign <= 1; sign += 2)
+            {
+                float lo = 0f, hi = hw;
+                bool found = false;
+                for (int k = 1; k <= BankSteps; k++)
+                {
+                    float t = hw * k / BankSteps;
+                    if (height.GetElevation((dir + s * (sign * t)).Normalized) > water)
+                    {
+                        hi = t; lo = hw * (k - 1) / BankSteps; found = true;
+                        break;
+                    }
+                }
+                if (found)
+                {
+                    for (int b = 0; b < BankBisections; b++)
+                    {
+                        float mid = 0.5f * (lo + hi);
+                        if (height.GetElevation((dir + s * (sign * mid)).Normalized) > water) hi = mid; else lo = mid;
+                    }
+                }
+                float bank = found ? Mathf.Min(hw, Mathf.Max(minBank, lo)) : hw; // V0.2.0G.2E: never wider than the displayed half width (channels narrower than the minimum strip)
+                if (sign < 0) hwR = bank; else hwL = bank;
+            }
+        }
+
+        void EdgePositions(Vector3d dir, Vector3 side, float hwL, float hwR, float left, float right, out Vector3d leftPos, out Vector3d rightPos)
         {
             var s = new Vector3d(side);
-            leftPos = (dir + s * hw).Normalized * (radius * (1.0 + left));
-            rightPos = (dir - s * hw).Normalized * (radius * (1.0 + right));
+            leftPos = (dir + s * hwL).Normalized * (radius * (1.0 + left));
+            rightPos = (dir - s * hwR).Normalized * (radius * (1.0 + right));
         }
 
         void RunPiece(Job job)
         {
             long start = Stopwatch.GetTimestamp();
-            PieceData d = BuildPiece(job.Piece, job.Level);
-            d.Milliseconds = Elapsed(start);
+            PieceData d = BuildPiece(job.Piece, job.Level, job);
+            if (d != null) d.Milliseconds = Elapsed(start);
             job.Result = d;
         }
 
@@ -1060,8 +1365,12 @@ namespace Planetwalker.Rendering
         /// the spine samples themselves (placed by the prepass), re-evaluated at this level's spacing; the interior
         /// samples interpolate the legacy trajectory and are snapped and placed like the prepass does.
         /// </summary>
-        public PieceData BuildPiece(int piece, int level)
+        public PieceData BuildPiece(int piece, int level) => BuildPiece(piece, level, null);
+
+        /// <summary><see cref="BuildPiece(int, int)"/>, leaving early (null) when the job is cancelled (a rebuild is replacing the spine arrays).</summary>
+        PieceData BuildPiece(int piece, int level, Job job)
         {
+            if (job != null && job.Cancelled) return null;
             int n = 1 << level, count = n + 1;
             int i0 = pieceFirst[piece], i1 = i0 + 1;
             var d = new PieceData
@@ -1069,13 +1378,16 @@ namespace Planetwalker.Rendering
                 Piece = piece, Level = level, Count = count,
                 Dir = new Vector3d[count], Side = new Vector3[count], Center = new float[count], Left = new float[count], Right = new float[count],
                 HalfWidth = new float[count], Water = new float[count], Mouth = new float[count], Diag = new float[count],
+                HalfWidthLeft = new float[count], HalfWidthRight = new float[count], Weight = new float[count],
                 LeftPos = new Vector3[count], RightPos = new Vector3[count],
             };
-            d.Bytes = count * (24 + 12 + 4 * 7 + 24) + 160;
+            d.Bytes = count * (24 + 12 + 4 * 10 + 24) + 160;
             float step = levelStep[level];
             Vector3 legacyA = spineLegacy[i0], legacyB = spineLegacy[i1];
+            var bedDepth = new float[count]; // V0.2.0G.2E: the channel depth under each sample (building only)
             for (int k = 0; k < count; k++)
             {
+                if (job != null && (k & 31) == 0 && job.Cancelled) return null;
                 float t = k / (float)n;
                 float weight, offset;
                 if (k == 0 || k == n)
@@ -1083,8 +1395,11 @@ namespace Planetwalker.Rendering
                     int i = k == 0 ? i0 : i1;
                     d.Dir[k] = spineDir[i];
                     d.HalfWidth[k] = spineHw[i];
+                    d.HalfWidthLeft[k] = spineHwL[i];
+                    d.HalfWidthRight[k] = spineHwR[i];
                     weight = spineWeight[i];
                     offset = spineOffset[i];
+                    bedDepth[k] = spineBedDepth[i];
                 }
                 else
                 {
@@ -1092,7 +1407,7 @@ namespace Planetwalker.Rendering
                     float param = Mathf.Lerp(spineParam[i0], spineParam[i1], t);
                     float lakeScale = Mathf.Lerp(spineLakeScale[i0], spineLakeScale[i1], t);
                     float halfWidth = Mathf.Lerp(spineHalfWidth[i0], spineHalfWidth[i1], t);
-                    PlaceSample(legacy, spineRiver[i0], param, lakeScale, halfWidth, out d.Dir[k], out d.HalfWidth[k], out weight, out offset, out _);
+                    PlaceSample(legacy, spineRiver[i0], param, lakeScale, halfWidth, out d.Dir[k], out d.HalfWidth[k], out weight, out offset, out _, out bedDepth[k]);
                 }
                 d.Water[k] = Mathf.Lerp(spineWater[i0], spineWater[i1], t);
                 d.Mouth[k] = Mathf.Lerp(spineMouth[i0], spineMouth[i1], t);
@@ -1106,11 +1421,34 @@ namespace Planetwalker.Rendering
                 else if (k == n) d.Side[k] = spineSide[i1];
                 else d.Side[k] = SideOf(d.Dir[k], d.Dir[k - 1], d.Dir[k + 1], d.Side[k - 1]);
             }
+            // Banks of the interior samples: computed every stride (fine levels have many samples), interpolated between.
+            int stride = Math.Max(1, 1 << Math.Max(0, level - BankStrideLevel));
+            for (int k = 1; k < n; k++)
+            {
+                if (k % stride == 0 || k == n - 1 || stride == 1)
+                {
+                    Banks(d.Dir[k], d.Side[k], d.HalfWidth[k], d.Center[k], bedDepth[k], out d.HalfWidthLeft[k], out d.HalfWidthRight[k]);
+                }
+            }
+            if (stride > 1)
+            {
+                int previous = 0;
+                for (int k = 1; k < n; k++)
+                {
+                    if (k % stride == 0 || k == n - 1) { previous = k; continue; }
+                    int next = Math.Min(n, (k / stride + 1) * stride);
+                    if (next > n - 1) next = n - 1 > k ? n - 1 : n;
+                    float t = (k - previous) / (float)(next - previous);
+                    d.HalfWidthLeft[k] = Mathf.Lerp(d.HalfWidthLeft[previous], d.HalfWidthLeft[next], t);
+                    d.HalfWidthRight[k] = Mathf.Lerp(d.HalfWidthRight[previous], d.HalfWidthRight[next], t);
+                }
+            }
             for (int k = 0; k < count; k++)
             {
                 float weight = d.Center[k];
-                Heights(d.Dir[k], d.Side[k], d.HalfWidth[k], weight, step, out d.Center[k], out d.Left[k], out d.Right[k]);
-                EdgePositions(d.Dir[k], d.Side[k], d.HalfWidth[k], d.Left[k], d.Right[k], out Vector3d left, out Vector3d right);
+                d.Weight[k] = weight;
+                Heights(d.Dir[k], d.Side[k], d.HalfWidth[k], weight, bedDepth[k], step, out d.Center[k], out d.Left[k], out d.Right[k]);
+                EdgePositions(d.Dir[k], d.Side[k], d.HalfWidthLeft[k], d.HalfWidthRight[k], d.Left[k], d.Right[k], out Vector3d left, out Vector3d right);
                 d.LeftPos[k] = left.ToVector3();
                 d.RightPos[k] = right.ToVector3();
             }
@@ -1311,7 +1649,7 @@ namespace Planetwalker.Rendering
             if (!endHeights.TryGetValue(EndKey(sample, level), out Vector3 h))
             {
                 // The neighbour's data was evicted: evaluated here (rare, three evaluations).
-                Heights(spineDir[sample], spineSide[sample], spineHw[sample], spineWeight[sample], levelStep[level], out float c, out float l, out float r);
+                Heights(spineDir[sample], spineSide[sample], spineHw[sample], spineWeight[sample], spineBedDepth[sample], levelStep[level], out float c, out float l, out float r);
                 h = new Vector3(c, l, r);
                 endHeights[EndKey(sample, level)] = h;
             }
@@ -1334,7 +1672,7 @@ namespace Planetwalker.Rendering
                 for (int k = 0; k < 2; k++)
                 {
                     int i = i0 + k;
-                    AppendSample(spineDir[i], spineSide[i], spineHw[i], spineLeft0[i], spineRight0[i], spineLeftPos0[i], spineRightPos0[i],
+                    AppendSample(spineDir[i], spineSide[i], spineHwL[i], spineHwR[i], spineLeft0[i], spineRight0[i], spineLeftPos0[i], spineRightPos0[i],
                         spineWater[i], spineMouth[i], spineWeight[i] > 0.5f ? 1f + Mathf.Clamp01(spineOffset[i] / 40000f) : 0f, Vector3.zero, origin, precise);
                 }
             }
@@ -1347,7 +1685,7 @@ namespace Planetwalker.Rendering
                 {
                     float t = k / (float)n;
                     Vector3 c = corrected ? cA * (1f - t) + cB * t : Vector3.zero;
-                    AppendSample(d.Dir[k], d.Side[k], d.HalfWidth[k], d.Left[k], d.Right[k], d.LeftPos[k], d.RightPos[k], d.Water[k], d.Mouth[k], d.Diag[k], c, origin, precise);
+                    AppendSample(d.Dir[k], d.Side[k], d.HalfWidthLeft[k], d.HalfWidthRight[k], d.Left[k], d.Right[k], d.LeftPos[k], d.RightPos[k], d.Water[k], d.Mouth[k], d.Diag[k], c, origin, precise);
                 }
             }
             int count = (vertices.Count - first) / 2;
@@ -1359,13 +1697,14 @@ namespace Planetwalker.Rendering
             }
         }
 
-        void AppendSample(Vector3d dir, Vector3 side, float hw, float left, float right, Vector3 leftPos, Vector3 rightPos, float water, float mouth, float diag,
+        void AppendSample(Vector3d dir, Vector3 side, float hwL, float hwR, float left, float right, Vector3 leftPos, Vector3 rightPos, float water, float mouth, float diag,
             Vector3 correction, Vector3d origin, bool precise)
         {
             Vector3 l, r;
+            float hw = Mathf.Max(hwL, hwR);
             if (precise || correction.sqrMagnitude > 0f)
             {
-                EdgePositions(dir, side, hw, left + correction.y, right + correction.z, out Vector3d lp, out Vector3d rp);
+                EdgePositions(dir, side, hwL, hwR, left + correction.y, right + correction.z, out Vector3d lp, out Vector3d rp);
                 l = (lp - origin).ToVector3();
                 r = (rp - origin).ToVector3();
             }
@@ -1389,6 +1728,7 @@ namespace Planetwalker.Rendering
 
         void Upload(Mesh mesh, Bounds bounds)
         {
+            long start = Stopwatch.GetTimestamp();
             mesh.Clear();
             mesh.indexFormat = vertices.Count > 65535 ? IndexFormat.UInt32 : IndexFormat.UInt16;
             mesh.SetVertices(vertices);
@@ -1397,6 +1737,7 @@ namespace Planetwalker.Rendering
             mesh.SetUVs(1, widths);
             mesh.SetTriangles(triangles, 0, false);
             mesh.bounds = bounds;
+            uploadMilliseconds += Elapsed(start);
         }
 
         static Mesh NewMesh(string name) => new Mesh { name = name, hideFlags = HideFlags.DontSave };

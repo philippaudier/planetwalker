@@ -34,6 +34,7 @@ namespace Planetwalker.UI
         [SerializeField] Slider microDetailSlider;
         [SerializeField] Text microDetailValue;
         [SerializeField] Slider landformSlider;
+        [SerializeField] Toggle riverBedsToggle;
         [SerializeField] Text landformValue;
         [SerializeField] Slider erosionSlider;
         [SerializeField] Text erosionValue;
@@ -47,7 +48,7 @@ namespace Planetwalker.UI
         bool SurfaceDetailLayoutComplete()
         {
             return surfaceDetailToggle != null && regionalDetailSlider != null && localDetailSlider != null && microDetailSlider != null
-                && landformSlider != null && erosionSlider != null && surfaceDetailViewToggle != null && surfaceDetailViewButton != null && surfaceDetailStatsText != null;
+                && landformSlider != null && erosionSlider != null && riverBedsToggle != null && surfaceDetailViewToggle != null && surfaceDetailViewButton != null && surfaceDetailStatsText != null;
         }
 
         void BuildSurfaceDetailSection(RectTransform panel, Font font)
@@ -67,6 +68,10 @@ namespace Planetwalker.UI
             microDetailSlider.SetValueWithoutNotify(1f);
             landformSlider.SetValueWithoutNotify(1f);
             erosionSlider.SetValueWithoutNotify(1f);
+            // V0.2.0G.2E: a terrain setting (archived; worlds saved before G.2E load with it off to keep their terrain).
+            var bedsRow = CreateRow(panel, "River Beds Row");
+            riverBedsToggle = CreateToggle(bedsRow, font, "River Beds (whole network)");
+            riverBedsToggle.isOn = true;
             var viewRow = CreateRow(panel, "Surface Detail View Row");
             surfaceDetailViewToggle = CreateToggle(viewRow, font, "Show Detail Layers");
             surfaceDetailViewButton = CreateButton(viewRow, font, SurfaceDetailViewNames[0]);
@@ -85,6 +90,7 @@ namespace Planetwalker.UI
             microDetailSlider.onValueChanged.AddListener(OnSliderChanged);
             landformSlider.onValueChanged.AddListener(OnSliderChanged);
             erosionSlider.onValueChanged.AddListener(OnSliderChanged);
+            riverBedsToggle.onValueChanged.AddListener(OnSurfaceDetailToggled);
             surfaceDetailViewToggle.onValueChanged.AddListener(OnSurfaceDetailViewToggled);
             surfaceDetailViewButton.onClick.AddListener(OnSurfaceDetailViewClicked);
         }
@@ -97,6 +103,7 @@ namespace Planetwalker.UI
             microDetailSlider.onValueChanged.RemoveListener(OnSliderChanged);
             landformSlider.onValueChanged.RemoveListener(OnSliderChanged);
             erosionSlider.onValueChanged.RemoveListener(OnSliderChanged);
+            riverBedsToggle.onValueChanged.RemoveListener(OnSurfaceDetailToggled);
             surfaceDetailViewToggle.onValueChanged.RemoveListener(OnSurfaceDetailViewToggled);
             surfaceDetailViewButton.onClick.RemoveListener(OnSurfaceDetailViewClicked);
         }
@@ -119,6 +126,7 @@ namespace Planetwalker.UI
             definition.microDetail = microDetailSlider.value;
             definition.regionalLandforms = landformSlider.value;
             definition.erosionStrength = erosionSlider.value;
+            definition.riverBeds = riverBedsToggle.isOn ? 1 : 0;
         }
 
         void SyncSurfaceDetailFromDefinition(PlanetDefinition definition)
@@ -129,6 +137,7 @@ namespace Planetwalker.UI
             microDetailSlider.SetValueWithoutNotify(definition.microDetail);
             landformSlider.SetValueWithoutNotify(definition.regionalLandforms);
             erosionSlider.SetValueWithoutNotify(definition.erosionStrength);
+            riverBedsToggle.SetIsOnWithoutNotify(definition.riverBeds > 0);
             UpdateSurfaceDetailValueLabels();
         }
 
@@ -214,8 +223,13 @@ namespace Planetwalker.UI
                     : "\nLandforms off (V0.2.0F terrain)")
                 + (detail.Erosion != null
                     ? (detail.Erosion.Context.Model == ErosionModel.Fluvial
-                        ? string.Format(CultureInfo.InvariantCulture, "\nErosion {0:0.00}x: fluvial incision (G.2B), up to {1} on the drainage network",
-                            detail.Erosion.Context.Strength, PlanetScale.FormatDistance(ValleyNetwork.MaxIncisionMeters * Mathf.Min(detail.Erosion.Context.Strength, 2f)))
+                        ? string.Format(CultureInfo.InvariantCulture, "\nErosion {0:0.00}x: fluvial incision (G.2B), up to {1} on the drainage network{2}",
+                            detail.Erosion.Context.Strength, PlanetScale.FormatDistance(ValleyNetwork.MaxIncisionMeters * Mathf.Min(detail.Erosion.Context.Strength, 2f)),
+                            detail.Erosion.HasRiverBeds
+                                ? string.Format(CultureInfo.InvariantCulture, " · river beds (G.2E) on the whole network, channels to {0}, floodplains to {1}",
+                                    PlanetScale.FormatDistance(RiverBedMorphology.MaxDepthMeters * Mathf.Min(detail.Erosion.Context.Strength, 2f)),
+                                    PlanetScale.FormatDistance(RiverBedMorphology.MaxFloodplainHalfWidthMeters))
+                                : "")
                         : string.Format(CultureInfo.InvariantCulture, "\nErosion {0:0.00}x: model none (G.2A world), displacement 0",
                             detail.Erosion.Context.Strength))
                     : "\nErosion stage off");

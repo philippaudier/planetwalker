@@ -31,12 +31,13 @@ namespace Planetwalker.Tests
             created.Clear();
         }
 
-        static PlanetInstance Planet(int seed = 1337, float strength = 1f, int model = 1)
+        static PlanetInstance Planet(int seed = 1337, float strength = 1f, int model = 1, int beds = 1)
         {
-            if (!Planets.TryGetValue((seed, strength, model), out PlanetInstance planet))
+            // V0.2.0G.2E: beds = 0 pins the G.2B terrain (channels in the ranges only) for the tests of G.2B-only contracts.
+            if (!Planets.TryGetValue((seed, strength, model + 10 * beds), out PlanetInstance planet))
             {
-                planet = new PlanetInstance(new PlanetDefinition { seed = seed, erosionStrength = strength, erosionModel = model });
-                Planets[(seed, strength, model)] = planet;
+                planet = new PlanetInstance(new PlanetDefinition { seed = seed, erosionStrength = strength, erosionModel = model, riverBeds = beds });
+                Planets[(seed, strength, model + 10 * beds)] = planet;
             }
             return planet;
         }
@@ -381,7 +382,9 @@ namespace Planetwalker.Tests
         [Test]
         public void Plateaus_CoastalPlains_AndTheLegacyWorld_AreUntouched()
         {
-            PlanetInstance on = Planet(310929, 1f), off = Planet(310929, 0f);
+            // The G.2B contract (no incision outside the ranges), on the G.2B terrain: river beds off (V0.2.0G.2E carves a
+            // bed along the whole network by design; RiverBedTests cover that terrain).
+            PlanetInstance on = Planet(310929, 1f, 1, 0), off = Planet(310929, 0f, 1, 0);
             int plateau = 0, plain = 0;
             foreach (Vector3d d in Spiral(60000))
             {

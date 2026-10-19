@@ -177,6 +177,17 @@ namespace Planetwalker.Core
 
         public const int MaxErosionModel = 1;
 
+        // River beds (V0.2.0G.2E). Archives older than V0.2.0G.2E have no such field: the serializer sets 0 for them (the
+        // channel network stays the ranges' valleys on e0, the terrain bit-identical); new worlds start with 1.
+
+        [Tooltip("River beds (V0.2.0G.2E): 0 = none (channels carved in the mountain ranges only: the V0.2.0G.2B terrain), "
+            + "1 = a carved bed along the whole river network, on the one reference hydrology (channel, banks, floodplain). "
+            + "Archived: archives before V0.2.0G.2E load with 0.")]
+        [Range(0, MaxRiverBeds)]
+        public int riverBeds = 1;
+
+        public const int MaxRiverBeds = 1;
+
         public PlanetDefinition Clone()
         {
             return (PlanetDefinition)MemberwiseClone();
@@ -211,7 +222,8 @@ namespace Planetwalker.Core
                 && microDetail == other.microDetail
                 && regionalLandforms == other.regionalLandforms
                 && erosionStrength == other.erosionStrength
-                && erosionModel == other.erosionModel;
+                && erosionModel == other.erosionModel
+                && riverBeds == other.riverBeds;
         }
 
         /// <summary>True when the surface detail settings (V0.2.0C) are identical.</summary>
@@ -220,7 +232,7 @@ namespace Planetwalker.Core
             return other != null && surfaceDetail == other.surfaceDetail && regionalDetail == other.regionalDetail
                 && localDetail == other.localDetail && microDetail == other.microDetail && radiusKilometers == other.radiusKilometers
                 && regionalLandforms == other.regionalLandforms && erosionStrength == other.erosionStrength
-                && erosionModel == other.erosionModel;
+                && erosionModel == other.erosionModel && riverBeds == other.riverBeds;
         }
 
         /// <summary>Clamps every parameter into its documented range.</summary>
@@ -248,6 +260,7 @@ namespace Planetwalker.Core
             regionalLandforms = Mathf.Clamp(regionalLandforms, 0f, MaxSurfaceDetailLevel);
             erosionStrength = Mathf.Clamp(erosionStrength, 0f, MaxSurfaceDetailLevel);
             erosionModel = Mathf.Clamp(erosionModel, 0, MaxErosionModel);
+            riverBeds = Mathf.Clamp(riverBeds, 0, MaxRiverBeds);
         }
     }
 }

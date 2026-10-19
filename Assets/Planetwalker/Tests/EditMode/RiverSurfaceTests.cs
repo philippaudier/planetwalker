@@ -45,6 +45,10 @@ namespace Planetwalker.Tests
             c.Hydrology.riverNetworkThreshold = Threshold;
             PlanetDefinition def = c.Terrain.Clone();
             def.seed = Seed; def.surfaceDetail = true; def.regionalLandforms = 1f; def.erosionStrength = 1f; def.erosionModel = 1;
+            // V0.2.0G.2E: these tests state the G.2D / G.2D.1 contracts (corridors in the ranges, the width-based water depth)
+            // on the terrain they were written for; the river beds along the whole network have their own surface tests
+            // (RiverBedTests.Surface_...).
+            def.riverBeds = 0;
             var planet = new PlanetInstance(def);
             var hydrology = new HydrologySystem().Compute(new HydrologyGrid(c.Hydrology.resolution), planet);
             var system = new RiverNetworkSystem();
@@ -161,7 +165,16 @@ namespace Planetwalker.Tests
                     float step = s.Surface.GetLevelStep(level);
                     for (int k = 0; k < d.Count; k++)
                     {
-                        Assert.AreEqual(height.GetSurfaceElevation(d.Dir[k], step), d.Center[k], 0f, "the sample's own elevation: octaves band-limited at its level, landforms complete");
+                        float own = height.GetSurfaceElevation(d.Dir[k], step);
+                        if (d.Weight[k] >= 0.999f)
+                        {
+                            float depthM = (d.Center[k] - own) * (float)R;
+                            Assert.IsTrue(depthM >= 0.99f && depthM <= 8.01f, $"inside a corridor the water surface is the bed plus a bounded depth (1 .. 8 m), got {depthM:0.00} m");
+                        }
+                        else
+                        {
+                            Assert.AreEqual(own, d.Center[k], 0f, "the sample's own elevation: octaves band-limited at its level, landforms complete");
+                        }
                         if (k + 1 < d.Count)
                         {
                             // Between two samples the ribbon is linear: the full canonical terrain at the midpoint tells the vertical residual.
@@ -206,8 +219,8 @@ namespace Planetwalker.Tests
                 checkedSamples++;
                 if (offset > 2000f)
                 {
-                    RiverSpineSample legacy = s.Spine.GetSpineSample(i);
-                    float placed = s.Planet.Height.GetElevation(dir), before = s.Planet.Height.GetElevation(new Vector3d(legacy.Direction));
+                    Vector3 legacy = s.Surface.GetSpineLegacy(i);
+                    float placed = s.Planet.Height.GetElevation(dir), before = s.Planet.Height.GetElevation(new Vector3d(legacy));
                     if (placed < before) lower++;
                     sumDrop += (before - placed) * s.RadiusMeters;
                 }
@@ -230,6 +243,8 @@ namespace Planetwalker.Tests
                 Assert.IsTrue(a.Dir[end] == b.Dir[0], $"shared sample direction, bitwise ({la}, {lb})");
                 Assert.AreEqual(a.Side[end], b.Side[0], "shared side vector");
                 Assert.AreEqual(a.HalfWidth[end], b.HalfWidth[0], "shared width");
+                Assert.AreEqual(a.HalfWidthLeft[end], b.HalfWidthLeft[0], "shared left bank");
+                Assert.AreEqual(a.HalfWidthRight[end], b.HalfWidthRight[0], "shared right bank");
                 Assert.AreEqual(a.Water[end], b.Water[0]);
                 // The heights differ by the band limit of each level: that is what the end morph absorbs (checked on meshes below).
             }
@@ -425,6 +440,94 @@ namespace Planetwalker.Tests
             Assert.Greater(d2.Evictions, 0);
             Assert.LessOrEqual(d2.CacheBytes, Math.Max(surface.CacheBudgetBytes, d2.DisplayedBytes) + (1L << 20), "bounded: the budget, or what the current view displays when that is more (never evicted)");
             surface.Dispose();
+        }
+
+        [Test]
+        public void CoastalOutlets_ReachTheCanonicalSea_WithoutClimbing()
+        {
+            Scene s = Build();
+            RiverSurfaceDiagnostics d = s.Surface.Diagnostics;
+            float ocean = s.Planet.OceanRadius, R = s.Planet.Radius;
+            double Rm = s.RadiusMeters;
+            HydrologyResult hydrology = s.Network.Hydrology;
+            int oceanBound = 0, above = 0, extended = 0, climbs = 0, onLand = 0; float worstClimb = 0f;
+            for (int r = 0; r < s.Surface.RibbonCount; r++)
+            {
+                int a = s.Surface.GetRibbonStart(r), b = s.Surface.GetRibbonStart(r + 1);
+                if (b - a < 2) continue;
+                River river = s.Network.GetRiver(s.Surface.GetSpineRiver(a));
+                if (river.MouthCell < 0 || river.ParentRiver >= 0) continue; // a tributary's appended sample is its confluence, not a coast
+                oceanBound++;
+                s.Surface.GetSpineSample(b - 1, out Vector3d end, out _, out _, out _, out _);
+                if (R * (1f + s.Planet.Height.GetElevation(end)) >= ocean) above++;
+                // Appended coastal samples: the same parameter as the mouth sample, past the builder's own samples.
+                int builderEnd = s.Spine.GetSpineStart(r + 1) - s.Spine.GetSpineStart(r);
+                if (b - a > builderEnd)
+                {
+                    extended++;
+                    float previous = float.MaxValue;
+                    for (int i = a + builderEnd - 1; i < b; i++)
+                    {
+                        s.Surface.GetSpineSample(i, out Vector3d dir, out _, out _, out _, out _);
+                        if (hydrology.IsLand(hydrology.Grid.CellFromDirection(dir.ToVector3())) && i >= a + builderEnd) onLand++;
+                        float h = s.Planet.Height.GetElevation(dir);
+                        if (previous != float.MaxValue)
+                        {
+                            float climb = (h - previous) * (float)Rm;
+                            worstClimb = Mathf.Max(worstClimb, climb);
+                            if (climb > 5f) climbs++;
+                        }
+                        previous = h;
+                    }
+                }
+            }
+            TestContext.WriteLine($"{oceanBound} ocean-bound ribbons: ends above the canonical ocean {above} (79 before G.2D.1), extended to the sea {extended} ({d.CoastSamples} samples, unreachable {d.CoastUnreached}); climbs over 5 m along the extensions {climbs}, worst {worstClimb:0.0} m; extension samples on land cells {onLand}");
+            Assert.Greater(oceanBound, 1000);
+            Assert.Greater(extended, 60, "most of the 79 elevated mouths are continued to the sea");
+            Assert.LessOrEqual(above, d.CoastUnreached, "every end still above the canonical ocean is a documented unreachable one");
+            Assert.LessOrEqual(d.CoastUnreached, 4, "two unreachable coasts measured on the default planet");
+            Assert.AreEqual(0, onLand, "a coastal extension never crosses a hydrology land cell");
+            Assert.AreEqual(0, climbs, "no artificial uphill final segment: the extension follows the descending canonical coast");
+        }
+
+        [Test]
+        public void Banks_StopTheEdgesWhereTheBedRises_AndKeepIslands()
+        {
+            Scene s = Build();
+            float R = s.Planet.Radius; double Rm = s.RadiusMeters;
+            int corridorSamples = 0, banked = 0, edgesAboveWater = 0, islands = 0; float maxDepth = 0f; var shares = new List<float>();
+            for (int i = 0; i < s.Surface.SpineSampleCount; i++)
+            {
+                s.Surface.GetSpineSample(i, out Vector3d dir, out float hw, out float w, out _, out float e0);
+                if (w < 0.999f || hw <= 0f) continue;
+                corridorSamples++;
+                s.Surface.GetSpineBanks(i, out float hwL, out float hwR);
+                Assert.LessOrEqual(hwL, hw); Assert.LessOrEqual(hwR, hw);
+                Assert.GreaterOrEqual(hwL * Rm, 20.0 - 0.01); Assert.GreaterOrEqual(hwR * Rm, 20.0 - 0.01);
+                shares.Add(0.5f * (hwL + hwR) / hw);
+                if (hwL < hw * 0.999f || hwR < hw * 0.999f) banked++;
+                // The water surface is at most the bounded depth above the bed at the axis; a bank edge lies at or under it.
+                float bed = s.Planet.Height.GetElevation(dir);
+                RiverSurface.PieceData p = null;
+                for (int q = 0; q < s.Surface.PieceCount && p == null; q++) if (s.Surface.GetPieceFirstSample(q) == i) p = s.Surface.BuildPiece(q, 0);
+                if (p == null) continue;
+                float depth = s.Surface.WaterDepth(hw) * (float)Rm;
+                float water = bed + s.Surface.WaterDepth(hw);
+                maxDepth = Mathf.Max(maxDepth, depth);
+                Assert.AreEqual(depth, (p.Center[0] - s.Planet.Height.GetSurfaceElevation(dir, s.Surface.GetLevelStep(0))) * (float)Rm, 0.05f, "the level-0 water surface is the bed plus the depth");
+                var side = new Vector3d(p.Side[0]);
+                // A bank narrower than the 20 m minimum keeps that minimum (a visible strip in a V gorge): its edge may sit in the wall.
+                if (hwL < hw * 0.999f && hwL * Rm > 20.5 && s.Planet.Height.GetElevation((dir + side * hwL).Normalized) > water + 0.01f / (float)Rm) edgesAboveWater++;
+                // An island: terrain above the water surface between the banks (sampled at a quarter of each bank).
+                if (s.Planet.Height.GetElevation((dir + side * (0.25f * hwL)).Normalized) > water || s.Planet.Height.GetElevation((dir - side * (0.25f * hwR)).Normalized) > water) islands++;
+            }
+            shares.Sort();
+            TestContext.WriteLine($"{corridorSamples} corridor samples: banked {banked}, bank / capped half width p50 {shares[shares.Count / 2]:0.00} p10 {shares[(int)(shares.Count * 0.1)]:0.00}; bank edges above the water {edgesAboveWater}; samples with an island inside the banks {islands}; max water depth at the axis {maxDepth:0.0} m");
+            Assert.Greater(corridorSamples, 1000);
+            Assert.Greater(banked, corridorSamples / 2, "inside corridors the edges stop at the banks");
+            Assert.AreEqual(0, edgesAboveWater, "a bank edge is never above the water surface (bisection lands on the wet side)");
+            Assert.LessOrEqual(maxDepth, 8.05f, "the water surface is never more than the bounded depth above the bed");
+            Assert.Greater(islands, 0, "terrain higher than the depth stays an island (nothing is flooded to hide it)");
         }
 
         [Test]

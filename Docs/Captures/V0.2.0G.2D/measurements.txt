@@ -1,28 +1,29 @@
-Default configuration, seed 1337, hydrology 128, threshold 1E-05: 9495 rivers, 6452 ribbons, 99195 spine samples, 92817 pieces; prepass 1872 ms CPU
-Corridors: 879 / 32190 trajectory nodes on carved cells, links matched 419 / mismatched 0; snapped 3138 / 99269 spine samples, offset mean 8140 m max 37382 m, residual max 0.010 m; mouths above the sea on the placed surface 79
-Location samples: head 46354, gorge 49831, confluence 69659, valley floor 76821, outlet 37105 (-1 = none found); candidates: snapped 870, with a nearest channel 870, ribbon ends 56, tributary ends 56, with >= 16 cells 30, max cells 23
-head: at (-0.951245, 0.269542, 0.149934), corridor weight 1.00, legacy offset 18724 m, incision 84 m, half width 295 m, level-0 elevation 106379 m
-gorge: at (-0.967659, 0.248791, 0.041715), corridor weight 1.00, legacy offset 1140 m, incision 908 m, half width 804 m, level-0 elevation 14526 m
-confluence: at (-0.967659, 0.248791, 0.041715), corridor weight 1.00, legacy offset 1140 m, incision 908 m, half width 804 m, level-0 elevation 14526 m
-valley_floor: at (-0.978689, 0.201009, 0.041991), corridor weight 1.00, legacy offset 0 m, incision 487 m, half width 743 m, level-0 elevation 4452 m
+Default configuration, seed 1337, hydrology 128, threshold 1E-05: 9495 rivers, 6452 ribbons, 99195 spine samples, 92997 pieces; prepass 3430 ms CPU
+Corridors: 879 / 32190 trajectory nodes on carved cells, links matched 600 / mismatched 74; snapped 3656 / 99449 spine samples, offset mean 8151 m max 37382 m, residual max 0.010 m; mouths above the sea on the placed surface 1
+Location samples: head 46484, gorge 49978, confluence 69839, valley floor 77001, outlet 37183 (-1 = none found); candidates: snapped 995, with a nearest channel 995, ribbon ends 56, tributary ends 56, with >= 16 cells 33, max cells 23
+head: at (-0.951245, 0.269542, 0.149934), corridor weight 1.00, legacy offset 18724 m, incision 84 m, half width 295 m, level-0 elevation 106381 m
+gorge: at (-0.967659, 0.248791, 0.041715), corridor weight 1.00, legacy offset 1140 m, incision 908 m, half width 804 m, level-0 elevation 14529 m
+confluence: at (-0.967659, 0.248791, 0.041715), corridor weight 1.00, legacy offset 1140 m, incision 908 m, half width 804 m, level-0 elevation 14529 m
+valley_floor: at (-0.978689, 0.201009, 0.041991), corridor weight 1.00, legacy offset 0 m, incision 487 m, half width 743 m, level-0 elevation 4455 m
 outlet: at (-0.953591, 0.285218, -0.096516), corridor weight 0.00, legacy offset 0 m, incision 0 m, half width 4862 m, level-0 elevation 1455 m
-Probe head: terrain 106388.1 m, surface L0 106379.5 L4 106381.9 L11 106388.1 m, explorer floor 106388.1 m, camera 20.0 m above the floor; piece 44526 level 11 group 2: first left / right vertex 106387.8 / 106387.8 m
-   near piece 44525: level 11, group 2, river 4305, weight 0.73, half width 384 m, nearest vertex 300 m, highest vertex +8068 m relative to the camera
-   near piece 44526: level 11, group 2, river 4305, weight 1.00, half width 295 m, nearest vertex 300 m, highest vertex -20 m relative to the camera
-Probe gorge: terrain 14648.8 m, surface L0 14525.8 L4 14631.4 L11 14648.8 m, explorer floor 14648.8 m, camera 20.0 m above the floor; piece 47785 level 11 group 2: first left / right vertex 14648.7 / 14649.1 m
-   near piece 47784: level 11, group 2, river 4674, weight 1.00, half width 800 m, nearest vertex 806 m, highest vertex +353 m relative to the camera
-   near piece 47785: level 11, group 2, river 4674, weight 1.00, half width 804 m, nearest vertex 806 m, highest vertex -20 m relative to the camera
-   near piece 66011: level 11, group 2, river 6649, weight 0.67, half width 862 m, nearest vertex 805 m, highest vertex +1896 m relative to the camera
+Probe head: terrain 106388.1 m, surface L0 106379.5 L4 106381.9 L11 106388.1 m, explorer floor 106388.1 m, camera 20.0 m above the floor; piece 44656 level 11 group 2: first left / right vertex 106389.3 / 106389.8 m
+   near piece 44655: level 11, group 2, river 4305, weight 0.73, half width 384 m, nearest vertex 25 m, highest vertex +8068 m relative to the camera
+   near piece 44656: level 11, group 2, river 4305, weight 1.00, half width 295 m, nearest vertex 28 m, highest vertex -19 m relative to the camera
+Probe gorge: terrain 14648.8 m, surface L0 14525.8 L4 14631.4 L11 14648.8 m, explorer floor 14648.8 m, camera 20.0 m above the floor; piece 47932 level 11 group 2: first left / right vertex 14652.1 / 14652.1 m
+   near piece 47931: level 11, group 2, river 4674, weight 1.00, half width 800 m, nearest vertex 53 m, highest vertex +356 m relative to the camera
+   near piece 47932: level 11, group 2, river 4674, weight 1.00, half width 804 m, nearest vertex 77 m, highest vertex -17 m relative to the camera
+   near piece 66191: level 11, group 2, river 6649, weight 0.67, half width 862 m, nearest vertex 53 m, highest vertex +1896 m relative to the camera
 Probe confluence: terrain 14648.8 m, surface L0 14525.8 L4 14631.4 L11 14648.8 m, explorer floor 14648.8 m, camera 20.0 m above the floor; no piece
-   near piece 47784: level 11, group 2, river 4674, weight 1.00, half width 800 m, nearest vertex 806 m, highest vertex +353 m relative to the camera
-   near piece 47785: level 11, group 2, river 4674, weight 1.00, half width 804 m, nearest vertex 806 m, highest vertex -20 m relative to the camera
-   near piece 66011: level 11, group 2, river 6649, weight 0.67, half width 862 m, nearest vertex 805 m, highest vertex +1896 m relative to the camera
+   near piece 47931: level 11, group 2, river 4674, weight 1.00, half width 800 m, nearest vertex 53 m, highest vertex +356 m relative to the camera
+   near piece 47932: level 11, group 2, river 4674, weight 1.00, half width 804 m, nearest vertex 77 m, highest vertex -17 m relative to the camera
+   near piece 66191: level 11, group 2, river 6649, weight 0.67, half width 862 m, nearest vertex 53 m, highest vertex +1896 m relative to the camera
 Probe valley_floor: terrain 4452.6 m, surface L0 4452.4 L4 4447.4 L11 4452.6 m, explorer floor 4452.6 m, camera 20.0 m above the floor; no piece
-   near piece 24502: level 11, group 2, river 2015, weight 0.00, half width 2472 m, nearest vertex 1782 m, highest vertex +913 m relative to the camera
-   near piece 72568: level 11, group 2, river 7272, weight 1.00, half width 682 m, nearest vertex 744 m, highest vertex +17478 m relative to the camera
-Probe outlet: terrain 1455.8 m, surface L0 1455.2 L4 1458.7 L11 1455.8 m, explorer floor 1455.8 m, camera 20.0 m above the floor; no piece
-   near piece 35793: level 11, group 2, river 3214, weight 0.00, half width 4862 m, nearest vertex 4873 m, highest vertex +2826 m relative to the camera
-LOD descent / ascent at the gorge: same pose 5 km down vs up differs on 7.80 % of pixels, 500 m down vs up 3.35 %
+   near piece 24531: level 11, group 2, river 2015, weight 0.15, half width 2220 m, nearest vertex 1782 m, highest vertex +854 m relative to the camera
+   near piece 72748: level 11, group 2, river 7272, weight 1.00, half width 682 m, nearest vertex 47 m, highest vertex +17480 m relative to the camera
+Probe outlet: terrain 1455.8 m, surface L0 1455.2 L4 1458.7 L11 1455.8 m, explorer floor 1455.8 m, camera 20.0 m above the floor; piece 35872 level 11 group 2: first left / right vertex 1776.6 / 1220.0 m
+   near piece 35871: level 11, group 2, river 3214, weight 0.00, half width 4862 m, nearest vertex 4869 m, highest vertex +2826 m relative to the camera
+   near piece 35872: level 11, group 2, river 3214, weight 0.00, half width 4862 m, nearest vertex 4865 m, highest vertex +301 m relative to the camera
+LOD descent / ascent at the gorge: same pose 5 km down vs up differs on 7.80 % of pixels, 500 m down vs up 3.36 %
 Lake interaction: no ribbon with a rendered-shoreline transition on this planet (lakes shown)
 plateau (seed 310929, 2 km): A vs B changed pixels 1.5 %
 plain (seed 310929, 2 km): A vs B changed pixels 0.0 %

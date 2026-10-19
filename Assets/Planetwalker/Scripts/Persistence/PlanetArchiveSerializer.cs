@@ -31,7 +31,7 @@ namespace Planetwalker.Persistence
         /// <see cref="ApplyCompatibilityDefaults"/> turns off for archives that predate them, so their terrain stays
         /// bit-identical.
         /// </summary>
-        static readonly string[] ExactGeneratorVersions = { PlanetArchive.CurrentGeneratorVersion, "Genesis V0.2.0G.1", "Genesis V0.2.0C", "Genesis V0.1.3A", "Genesis V0.1.3B" };
+        static readonly string[] ExactGeneratorVersions = { PlanetArchive.CurrentGeneratorVersion, "Genesis V0.2.0G.2B", "Genesis V0.2.0G.1", "Genesis V0.2.0C", "Genesis V0.1.3A", "Genesis V0.1.3B" };
 
         /// <summary>The terrain member whose absence marks an archive written before V0.2.0C.</summary>
         const string SurfaceDetailField = "terrain.surfaceDetail";
@@ -44,6 +44,9 @@ namespace Planetwalker.Persistence
 
         /// <summary>The terrain member whose absence marks an archive written before V0.2.0G.2B (the fluvial model).</summary>
         const string ErosionModelField = "terrain.erosionModel";
+
+        /// <summary>The terrain member whose absence marks an archive written before V0.2.0G.2E (river beds on the whole network).</summary>
+        const string RiverBedsField = "terrain.riverBeds";
 
         /// <summary>
         /// The rivers member absent before V0.2.0G.2D. Presentation only (the river ribbons' placement on the drawn
@@ -59,7 +62,7 @@ namespace Planetwalker.Persistence
         public static readonly string[] CompatibilityDefaultFields =
         {
             "terrain.radiusKilometers", SurfaceDetailField, "terrain.regionalDetail", "terrain.localDetail", "terrain.microDetail",
-            RegionalLandformsField, ErosionField, ErosionModelField, RiverPlacementField,
+            RegionalLandformsField, ErosionField, ErosionModelField, RiverBedsField, RiverPlacementField,
         };
 
         public static bool IsCompatibilityDefault(string field) => System.Array.IndexOf(CompatibilityDefaultFields, field) >= 0;
@@ -377,6 +380,12 @@ namespace Planetwalker.Persistence
                     // Before V0.2.0G.2B (a V0.2.0G.2A world carries erosionStrength but no model): the zero-displacement
                     // model, so the fluvial incision never silently reshapes a world saved before it existed.
                     configuration.Terrain.erosionModel = 0;
+                }
+                else if (field == RiverBedsField)
+                {
+                    // Before V0.2.0G.2E: no bed along the river network, channels in the ranges only (on e0): the terrain
+                    // such a world recorded is reproduced bit for bit.
+                    configuration.Terrain.riverBeds = 0;
                 }
             }
         }

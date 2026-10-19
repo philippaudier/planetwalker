@@ -1,0 +1,570 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Text;
+using NUnit.Framework;
+using Planetwalker.Core;
+using Planetwalker.Generation;
+using Planetwalker.Persistence;
+using Planetwalker.Rendering;
+using UnityEngine;
+
+namespace Planetwalker.Tests
+{
+    /// <summary>
+    /// V0.2.0G.2E diagnostics (batch, EditMode): matched cross-sections and longitudinal profiles at representative
+    /// locations (torrent, gorge, lowland channel, meander, headwater, confluence, mouth), morphology statistics over
+    /// 2 000 sections (repetition, abrupt transitions, uphill steps, symmetry), hydrology identity, development
+    /// histogram, performance. Default configuration, seed 1337, river density 100 %.
+    /// </summary>
+    public class G2EDiag
+    {
+        const string Out = @"C:\Users\Philippe\Documents\Programming\Unity\Projects\planetwalker\Docs\Captures\V0.2.0G.2E";
+        static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+        const int Seed = 1337;
+        StringBuilder log = new StringBuilder();
+        PlanetInstance on, before;
+        ValleyNetwork net;
+        double R;
+
+        // ---------------------------------------------------------------- plotting
+        sealed class Plot
+        {
+            public readonly int W, H;
+            readonly Color32[] px;
+            public double X0, X1, Y0, Y1;
+            readonly int left = 60, bottom = 30, top = 10, right = 10;
+            public Plot(int w, int h) { W = w; H = h; px = new Color32[w * h]; for (int i = 0; i < px.Length; i++) px[i] = new Color32(255, 255, 255, 255); }
+            int Px(double x) => left + (int)Math.Round((x - X0) / (X1 - X0) * (W - left - right));
+            int Py(double y) => bottom + (int)Math.Round((y - Y0) / (Y1 - Y0) * (H - top - bottom));
+            public void Set(int x, int y, Color32 c) { if (x >= 0 && x < W && y >= 0 && y < H) px[x + y * W] = c; }
+            public void Line(double xa, double ya, double xb, double yb, Color32 c, int thick = 1)
+            {
+                int x0 = Px(xa), y0 = Py(ya), x1 = Px(xb), y1 = Py(yb);
+                int dx = Math.Abs(x1 - x0), dy = -Math.Abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, err = dx + dy;
+                for (int guard = 0; guard < 100000; guard++)
+                {
+                    for (int t = 0; t < thick; t++) { Set(x0, y0 + t, c); if (thick > 1) Set(x0 + t, y0, c); }
+                    if (x0 == x1 && y0 == y1) break;
+                    int e2 = 2 * err;
+                    if (e2 >= dy) { err += dy; x0 += sx; }
+                    if (e2 <= dx) { err += dx; y0 += sy; }
+                }
+            }
+            public void Curve(IList<double> xs, IList<double> ys, Color32 c, int thick = 1) { for (int i = 1; i < xs.Count; i++) Line(xs[i - 1], ys[i - 1], xs[i], ys[i], c, thick); }
+            public void VLine(double x, Color32 c) { Line(x, Y0, x, Y1, c); }
+            public void HLine(double y, Color32 c) { Line(X0, y, X1, y, c); }
+            public void Axes()
+            {
+                var k = new Color32(0, 0, 0, 255);
+                Line(X0, Y0, X1, Y0, k); Line(X0, Y0, X0, Y1, k);
+                // ticks: 10 per axis
+                for (int i = 0; i <= 10; i++)
+                {
+                    double x = X0 + (X1 - X0) * i / 10, y = Y0 + (Y1 - Y0) * i / 10;
+                    Line(x, Y0, x, Y0 + (Y1 - Y0) * 0.01, k); Line(X0, y, X0 + (X1 - X0) * 0.006, y, k);
+                }
+            }
+            public void Save(string path)
+            {
+                var tex = new Texture2D(W, H, TextureFormat.RGB24, false);
+                tex.SetPixels32(px); tex.Apply();
+                File.WriteAllBytes(path, tex.EncodeToPNG());
+                UnityEngine.Object.DestroyImmediate(tex);
+            }
+        }
+
+        static readonly Color32 Grey = new Color32(150, 150, 150, 255), Black = new Color32(20, 20, 20, 255), Blue = new Color32(40, 90, 220, 255),
+            Red = new Color32(220, 40, 40, 255), Green = new Color32(30, 160, 60, 255), Orange = new Color32(240, 150, 20, 255), Light = new Color32(225, 225, 225, 255);
+
+        // ---------------------------------------------------------------- helpers
+        float HeightM(PlanetInstance p, Vector3d d) => (float)((p.Height.GetElevation(d) - p.SeaLevel) * R);
+
+        struct Loc { public string Name; public Vector3d Point; public ValleyNetwork.ChannelQuery Q; public int Segment; }
+
+        Loc Make(string name, int segment)
+        {
+            ValleyNetwork.Segment g = net.GetSegment(segment);
+            Vector3d p = net.Invert(g.B);
+            net.Nearest(p, out ValleyNetwork.ChannelQuery q);
+            return new Loc { Name = name, Point = p, Q = q, Segment = segment };
+        }
+
+        /// <summary>Terrain-space frame at an axis point: up, flow (downhill along the axis) and side (right of the flow).</summary>
+        void Frame(Loc l, out Vector3d up, out Vector3d flow, out Vector3d side)
+        {
+            up = l.Point.Normalized;
+            ValleyNetwork.Segment g = net.GetSegment(l.Segment);
+            Vector3d a = net.Invert(g.A), b = net.Invert(g.B);
+            flow = b - a; flow -= up * Vector3d.Dot(flow, up); flow = flow.Normalized;
+            side = Vector3d.Cross(up, flow).Normalized; // sign convention of the carve: cross(ab, q) . offset > 0 on this side
+        }
+
+        /// <summary>Normalized curvature and whether the side vector points toward the outer bank.</summary>
+        float KappaN(Loc l, out bool sideIsOuter)
+        {
+            float kappa = RiverBedMorphology.NormalizedCurvature(l.Q.Curvature);
+            // In Bed(): sAxis > 0 (outer) when kappa * sideNorm >= 0 with sideNorm = cross(ab, q) . offset; our side = cross(up, flow)
+            // and for an offset along side, cross(ab, q) . side = cross(flow, up) . side = -cross(up, flow) . side = -1 -> sideNorm < 0.
+            sideIsOuter = kappa < 0f;
+            return kappa;
+        }
+
+        // ---------------------------------------------------------------- cross-section
+        void CrossSection(Loc l)
+        {
+            Frame(l, out Vector3d up, out Vector3d flow, out Vector3d side);
+            ValleyNetwork.ChannelQuery q = l.Q;
+            float kappa = KappaN(l, out bool sideIsOuter);
+            float asym = Math.Abs(kappa) * Mathf.Clamp01(0.3f + 1f); // upper bound for the markers; the real asymmetry is read from the section
+            ValleyNetwork.Segment g = net.GetSegment(l.Segment);
+            float reach = Math.Max(q.FloodplainHalfWidthMeters * 1.6f, Math.Max(q.ChannelHalfWidthMeters * 1.4f + q.BankWidthMeters * 2.2f, 3f * q.HalfWidthMeters * q.Valley)) + 50f;
+            reach = Math.Min(reach, 20000f);
+            double step = Math.Max(2.0, reach / 1500.0);
+            var xs = new List<double>(); var hb = new List<double>(); var ha = new List<double>(); var bed = new List<double>(); var mask = new List<double>();
+            var csv = new StringBuilder("x_m,before_m,after_m,bed_m,channel_mask,floor_mask\n");
+            for (double x = -reach; x <= reach; x += step)
+            {
+                Vector3d d = (l.Point + side * (x / R)).Normalized;
+                float b = HeightM(before, d), a = HeightM(on, d);
+                float bd = net.Bed(d, 0f, 1f, out float ch, out float fl);
+                xs.Add(x); hb.Add(b); ha.Add(a); bed.Add(bd); mask.Add(ch);
+                csv.Append(string.Format(Inv, "{0:0.0},{1:0.00},{2:0.00},{3:0.00},{4:0.000},{5:0.000}\n", x, b, a, bd, ch, fl));
+            }
+            File.WriteAllText(Path.Combine(Out, $"section_{l.Name}.csv"), csv.ToString());
+            // Water surface: the thalweg's bed + 60 % of the channel depth (the G.2E rendering calibration).
+            float axisAfter = HeightM(on, l.Point);
+            float water = axisAfter + 0.6f * q.ChannelDepthMeters;
+            // Banks: where the terrain rises above the water on each side (as RiverSurface.Banks marches).
+            double bankL = double.NaN, bankR = double.NaN;
+            for (int i = xs.Count / 2; i < xs.Count; i++) if (ha[i] > water) { bankR = xs[i]; break; }
+            for (int i = xs.Count / 2; i >= 0; i--) if (ha[i] > water) { bankL = xs[i]; break; }
+            var plot = new Plot(1100, 420);
+            double ymin = Math.Min(hb.Min(), ha.Min()), ymax = Math.Max(hb.Max(), ha.Max());
+            double pad = Math.Max(2.0, (ymax - ymin) * 0.15);
+            plot.X0 = -reach; plot.X1 = reach; plot.Y0 = ymin - pad; plot.Y1 = ymax + pad;
+            // Zone markers (from the section parameters, symmetric reference; the actual asymmetric shape is the curve itself).
+            float shift = RiverBedMorphology.ThalwegShift * q.ChannelHalfWidthMeters * Math.Abs(kappa) * 0.6f; // informative
+            plot.VLine(0, Light);
+            plot.VLine(q.ChannelHalfWidthMeters, Green); plot.VLine(-q.ChannelHalfWidthMeters, Green);
+            plot.VLine(q.ChannelHalfWidthMeters + q.BankWidthMeters, Orange); plot.VLine(-(q.ChannelHalfWidthMeters + q.BankWidthMeters), Orange);
+            if (q.FloodplainHalfWidthMeters > 0) { plot.VLine(q.FloodplainHalfWidthMeters, Light); plot.VLine(-q.FloodplainHalfWidthMeters, Light); }
+            plot.Axes();
+            plot.Curve(xs, hb, Grey, 2);
+            plot.Curve(xs, ha, Black, 2);
+            if (!double.IsNaN(bankL) && !double.IsNaN(bankR)) plot.Line(bankL, water, bankR, water, Blue, 3);
+            if (!double.IsNaN(bankL)) plot.VLine(bankL, Red);
+            if (!double.IsNaN(bankR)) plot.VLine(bankR, Red);
+            plot.Save(Path.Combine(Out, $"section_{l.Name}.png"));
+            // Numbers.
+            int iAxis = xs.Count / 2;
+            double deepest = ha.Min(), floorBefore = hb[iAxis];
+            string bankText = (double.IsNaN(bankL) ? "no ground above the water on the left within the range (the channel sits on a cross slope: perched)" : string.Format(Inv, "{0:0} m", bankL))
+                + " / " + (double.IsNaN(bankR) ? "none on the right within the range (perched)" : string.Format(Inv, "{0:0} m", bankR));
+            log.AppendLine(string.Format(Inv,
+                "section {0}: at ({1:0.000000}, {2:0.000000}, {3:0.000000}); drained {4:0} cells, gradient {5:0.0000}, valley weight {6:0.00}, development {7:0.00}, kappa_n {8:+0.00;-0.00} ({9} side outer); channel half width {10:0} m, thalweg depth {11:0.0} m, bank width {12:0} m, floodplain half width {13:0} m, incision {14:0} m; terrain at the axis before {15:0.0} m after {16:0.0} m (carved {17:0.0} m), water {18:0.0} m, banks at {25} (water width {21:0} m), lowest point {22:0.0} m; plot x range +-{23:0} m, step {24:0.0} m",
+                l.Name, l.Point.x, l.Point.y, l.Point.z, q.Cells, q.Gradient, q.Valley, q.Development, kappa, sideIsOuter ? "right" : "left",
+                q.ChannelHalfWidthMeters, q.ChannelDepthMeters, q.BankWidthMeters, q.FloodplainHalfWidthMeters, q.IncisionMeters,
+                floorBefore, axisAfter, floorBefore - axisAfter, water, bankL, bankR, bankR - bankL, deepest, reach, step, bankText));
+        }
+
+        // ---------------------------------------------------------------- longitudinal profile
+        void Longitudinal(Loc l, double lengthMeters = 20000.0)
+        {
+            // Walk the channel: upstream along main curves, downstream along receiver curves, in terrain space, 100 m steps.
+            HydrologyResult h = net.Hydrology;
+            var segs = new List<int>();
+            int first = l.Segment - (l.Segment % ValleyNetwork.Subdivisions);
+            // downstream: this curve's remaining segments, then the receiver's curve from this cell, ...
+            int cell = net.GetSegment(l.Segment).Cell;
+            var down = new List<int>();
+            for (int s = first; s < first + ValleyNetwork.Subdivisions; s++) down.Add(s);
+            int c = cell; double acc = 0;
+            for (int guard = 0; guard < 40 && acc < lengthMeters; guard++)
+            {
+                int r = h.GetReceiver(c);
+                if (r < 0 || !net.IsChannel(r)) break;
+                net.GetCellSegments(r, out int rs, out int re);
+                int found = -1;
+                Vector3d endPoint = net.GetSegment(down[down.Count - 1]).B;
+                for (int s = rs; s < re; s += ValleyNetwork.Subdivisions) if ((net.GetSegment(s).A - endPoint).Magnitude < 1e-9) { found = s; break; }
+                if (found < 0) break;
+                for (int s = found; s < found + ValleyNetwork.Subdivisions; s++) down.Add(s);
+                acc += (net.GetSegment(found).B - net.GetSegment(found).A).Magnitude * R * ValleyNetwork.Subdivisions;
+                c = r;
+            }
+            // upstream: the curve whose end is this curve's start, with the largest drained area, ...
+            var upList = new List<int>();
+            Vector3d startPoint = net.GetSegment(first).A;
+            acc = 0;
+            for (int guard = 0; guard < 40 && acc < lengthMeters; guard++)
+            {
+                int best = -1; float bestCells = -1f;
+                HydrologyGrid grid = h.Grid;
+                int curCell = net.GetSegment(upList.Count > 0 ? upList[0] : first).Cell;
+                for (int k = grid.GetNeighborStart(curCell); k < grid.GetNeighborEnd(curCell); k++)
+                {
+                    int a = grid.GetNeighbor(k);
+                    if (!net.IsChannel(a) || h.GetReceiver(a) != curCell) continue;
+                    net.GetCellSegments(a, out int aStart, out int aEnd);
+                    if ((net.GetSegment(aEnd - 1).B - startPoint).Magnitude > 1e-9) continue;
+                    if (net.GetSegment(aStart).Cells > bestCells) { bestCells = net.GetSegment(aStart).Cells; best = aEnd - ValleyNetwork.Subdivisions; }
+                }
+                if (best < 0) break;
+                // the main curve of a: the curve ending at startPoint whose first segment is a's main one is unknown here: take the last curve block of a
+                var block = new List<int>();
+                for (int s = best; s < best + ValleyNetwork.Subdivisions; s++) block.Add(s);
+                upList.InsertRange(0, block);
+                startPoint = net.GetSegment(best).A;
+                acc += (net.GetSegment(best).B - net.GetSegment(best).A).Magnitude * R * ValleyNetwork.Subdivisions;
+            }
+            segs.AddRange(upList); segs.AddRange(down);
+            // Sample along chords in terrain space.
+            var dist = new List<double>(); var hb = new List<double>(); var ha = new List<double>(); var wat = new List<double>(); var dev = new List<double>(); var wc = new List<double>(); var kap = new List<double>();
+            double travelled = 0; double origin = double.NaN;
+            var csv = new StringBuilder("s_m,before_m,after_m,water_m,development,channel_half_width_m,channel_depth_m,kappa_n\n");
+            int uphillBefore = 0, uphillAfter = 0, newUphill = 0; double prevB = double.NaN, prevA = double.NaN;
+            var worst = new List<(double delta, double s, double dropB, double dropA, float depth, float mask)>();
+            foreach (int s in segs)
+            {
+                ValleyNetwork.Segment g = net.GetSegment(s);
+                Vector3d a = net.Invert(g.A), b = net.Invert(g.B);
+                double len = (b - a).Magnitude * R;
+                int n = Math.Max(1, (int)(len / 100.0));
+                for (int i = 0; i < n; i++)
+                {
+                    double t = (double)i / n;
+                    // The true axis: the meander-space chord point mapped to the terrain (a straight line between the
+                    // inverted ends would wander across the banks: the meander's sagitta over a 10 km chord reaches ~1 km).
+                    Vector3d d = net.Invert((g.A * (1 - t) + g.B * t).Normalized);
+                    if (s == l.Segment && double.IsNaN(origin)) origin = travelled + t * len;
+                    float before_ = HeightM(before, d), after_ = HeightM(on, d);
+                    net.Nearest(d, out ValleyNetwork.ChannelQuery q);
+                    float kn = RiverBedMorphology.NormalizedCurvature(q.Curvature);
+                    dist.Add(travelled + t * len); hb.Add(before_); ha.Add(after_); wat.Add(after_ + 0.6f * q.ChannelDepthMeters); dev.Add(q.Development); wc.Add(q.ChannelHalfWidthMeters); kap.Add(kn);
+                    csv.Append(string.Format(Inv, "{0:0},{1:0.00},{2:0.00},{3:0.00},{4:0.000},{5:0.0},{6:0.00},{7:0.000}\n", travelled + t * len, before_, after_, after_ + 0.6f * q.ChannelDepthMeters, q.Development, q.ChannelHalfWidthMeters, q.ChannelDepthMeters, kn));
+                    if (!double.IsNaN(prevB))
+                    {
+                        double dropB = prevB - before_, dropA = prevA - after_;
+                        if (dropB < -0.5) uphillBefore++;
+                        if (dropA < -0.5) uphillAfter++;
+                        if (dropB > 0.1 && dropA < -Math.Max(0.02 * dropB, 0.1))
+                        {
+                            newUphill++; // a descent of over 10 cm turned into a climb of over 10 cm
+                            float bd = net.Bed(d, 0f, 1f, out float cm, out _);
+                            worst.Add((dropB - dropA, travelled + t * len, dropB, dropA, bd, cm));
+                        }
+                    }
+                    prevB = before_; prevA = after_;
+                }
+                travelled += len;
+            }
+            if (double.IsNaN(origin)) origin = 0;
+            for (int i = 0; i < dist.Count; i++) dist[i] -= origin;
+            File.WriteAllText(Path.Combine(Out, $"profile_{l.Name}.csv"), csv.ToString());
+            var plot = new Plot(1100, 420);
+            plot.X0 = dist.First(); plot.X1 = dist.Last();
+            double ymin = Math.Min(hb.Min(), ha.Min()), ymax = Math.Max(hb.Max(), ha.Max()), pad = Math.Max(2.0, (ymax - ymin) * 0.1);
+            plot.Y0 = ymin - pad; plot.Y1 = ymax + pad;
+            plot.VLine(0, Light);
+            plot.Axes();
+            plot.Curve(dist, hb, Grey, 2); plot.Curve(dist, ha, Black, 2); plot.Curve(dist, wat, Blue, 1);
+            // development and width, scaled into the lower 20 % of the plot
+            var devScaled = dev.Select(v => plot.Y0 + v * (plot.Y1 - plot.Y0) * 0.2).ToList();
+            plot.Curve(dist, devScaled, Green, 1);
+            plot.Save(Path.Combine(Out, $"profile_{l.Name}.png"));
+            // Parameter continuity along the path.
+            double maxDwc = 0, maxDdev = 0, maxDk = 0;
+            for (int i = 1; i < dist.Count; i++)
+            {
+                double ds = Math.Max(1.0, dist[i] - dist[i - 1]) / 1000.0;
+                maxDwc = Math.Max(maxDwc, Math.Abs(wc[i] - wc[i - 1]) / ds);
+                maxDdev = Math.Max(maxDdev, Math.Abs(dev[i] - dev[i - 1]) / ds);
+                maxDk = Math.Max(maxDk, Math.Abs(kap[i] - kap[i - 1]) / ds);
+            }
+            worst.Sort((x, y) => y.delta.CompareTo(x.delta));
+            log.AppendLine(string.Format(Inv, "profile {0}: {1} samples over {2:0} m ({3} curves); uphill 100 m steps (> 0.5 m) before {4} after {5}, new uphill steps {6} (descent > 10 cm turned into a climb > 10 cm; worst changes of the 100 m step: {7}); max |d half width| {8:0.0} m/km, max |d development| {9:0.000} /km, max |d kappa_n| {10:0.00} /km",
+                l.Name, dist.Count, dist.Last() - dist.First(), segs.Count / ValleyNetwork.Subdivisions, uphillBefore, uphillAfter, newUphill,
+                string.Join("; ", worst.Take(4).Select(w => string.Format(Inv, "at {0:0} m: before -{1:0.00} m, after +{2:0.00} m, bed depth {3:0.0} m, channel mask {4:0.00}", w.s - origin, w.dropB, -w.dropA, w.depth, w.mask))),
+                maxDwc, maxDdev, maxDk));
+        }
+
+        // ---------------------------------------------------------------- confluence surface scan
+        void ConfluenceScan(Loc l, string tag)
+        {
+            Frame(l, out Vector3d up, out Vector3d flow, out Vector3d side);
+            const double half = 1000.0, step = 10.0;
+            int n = (int)(2 * half / step) + 1;
+            var hgt = new float[n, n];
+            for (int i = 0; i < n; i++) for (int j = 0; j < n; j++)
+            {
+                Vector3d d = (l.Point + flow * ((-half + i * step) / R) + side * ((-half + j * step) / R)).Normalized;
+                hgt[i, j] = HeightM(on, d);
+            }
+            float maxSlope = 0f, maxCurv = 0f;
+            for (int i = 1; i < n - 1; i++) for (int j = 1; j < n - 1; j++)
+            {
+                float sx = (hgt[i + 1, j] - hgt[i - 1, j]) / (float)(2 * step), sy = (hgt[i, j + 1] - hgt[i, j - 1]) / (float)(2 * step);
+                maxSlope = Math.Max(maxSlope, Mathf.Sqrt(sx * sx + sy * sy));
+                float cxx = (hgt[i + 1, j] - 2 * hgt[i, j] + hgt[i - 1, j]), cyy = (hgt[i, j + 1] - 2 * hgt[i, j] + hgt[i, j - 1]);
+                maxCurv = Math.Max(maxCurv, Math.Max(Math.Abs(cxx), Math.Abs(cyy)));
+            }
+            // heightmap plot
+            var plot = new Plot(n, n);
+            float lo = float.MaxValue, hi = float.MinValue; foreach (float v in hgt) { lo = Math.Min(lo, v); hi = Math.Max(hi, v); }
+            for (int i = 0; i < n; i++) for (int j = 0; j < n; j++)
+            {
+                byte g = (byte)(255 * Mathf.Clamp01((hgt[i, j] - lo) / Math.Max(1e-3f, hi - lo)));
+                plot.Set(j, i, new Color32(g, g, g, 255));
+            }
+            plot.Save(Path.Combine(Out, $"scan_{tag}.png"));
+            log.AppendLine(string.Format(Inv, "scan {0}: 2 km x 2 km at 10 m around the point, heights {1:0.0} .. {2:0.0} m, max slope {3:0.000}, max second difference {4:0.00} m (10 m step)", tag, lo, hi, maxSlope, maxCurv));
+        }
+
+        // ---------------------------------------------------------------- statistics over the network
+        void Statistics()
+        {
+            var rnd = new System.Random(7);
+            var candidates = new List<int>();
+            for (int s = 0; s < net.SegmentCount; s++) if (net.GetSegment(s).ChannelHalfWidthB >= 10f) candidates.Add(s);
+            var sample = new List<int>();
+            for (int i = 0; i < 2000 && candidates.Count > 0; i++) sample.Add(candidates[rnd.Next(candidates.Count)]);
+            // Groups: regime (rocky / alluvial / intermediate from gradient) x bend (|kappa_n| < 0.2, 0.2-0.6, > 0.6).
+            var groups = new Dictionary<string, List<double[]>>();
+            var ratios = new List<double>(); var ratiosBend = new List<double>();
+            int symmetricInBends = 0, bends = 0, boundaryViolations = 0, boundariesChecked = 0;
+            var transitions = new List<double>();
+            foreach (int s in sample)
+            {
+                ValleyNetwork.Segment g = net.GetSegment(s);
+                Vector3d p = net.Invert(g.B);
+                if (!net.Nearest(p, out ValleyNetwork.ChannelQuery q) || q.ChannelHalfWidthMeters < 10f) continue;
+                var l = new Loc { Point = p, Q = q, Segment = s };
+                Frame(l, out Vector3d up, out Vector3d flow, out Vector3d side);
+                float kappa = Math.Abs(KappaN(l, out _));
+                string regime = q.Gradient > 0.012f ? "rocky" : q.Gradient < 0.002f ? "alluvial" : "intermediate";
+                string bend = kappa < 0.2f ? "straight" : kappa < 0.6f ? "gentle" : "bend";
+                float reach = q.ChannelHalfWidthMeters * 1.3f + q.BankWidthMeters * 2f;
+                // normalized profile of the bed field over +-reach (64 points), depth / thalweg depth
+                var prof = new double[64];
+                double depthAxis = net.Bed(p, 0f, 1f, out _, out _);
+                double bankL = double.NaN, bankR = double.NaN;
+                for (int i = 0; i < 64; i++)
+                {
+                    double x = -reach + 2 * reach * i / 63.0;
+                    prof[i] = net.Bed((p + side * (x / R)).Normalized, 0f, 1f, out _, out _) / Math.Max(depthAxis, 1e-3);
+                }
+                // bank top positions: where the bed field reaches 2 % of the axis depth
+                for (double x = 0; x < reach; x += reach / 200) { if (net.Bed((p + side * (x / R)).Normalized, 0f, 1f, out _, out _) < 0.02 * depthAxis) { bankR = x; break; } }
+                for (double x = 0; x < reach; x += reach / 200) { if (net.Bed((p - side * (x / R)).Normalized, 0f, 1f, out _, out _) < 0.02 * depthAxis) { bankL = x; break; } }
+                if (!double.IsNaN(bankL) && !double.IsNaN(bankR) && bankL > 0 && bankR > 0)
+                {
+                    double ratio = Math.Max(bankL, bankR) / Math.Min(bankL, bankR);
+                    ratios.Add(ratio);
+                    if (bend == "bend") { bends++; ratiosBend.Add(ratio); if (ratio < 1.05) symmetricInBends++; }
+                }
+                (groups.TryGetValue(regime + "/" + bend, out List<double[]> list) ? list : groups[regime + "/" + bend] = new List<double[]>()).Add(prof);
+                // boundary continuity on the coded cross-section
+                var c = new ChannelSection { HalfWidth = g.ChannelHalfWidthB, Depth = g.ChannelDepthB, BankWidth = g.BankWidthB, FloodplainHalfWidth = g.FloodplainHalfWidthB, FloodplainDepth = g.FloodplainDepthB, Asymmetry = g.AsymmetryB };
+                float asym = kappa * g.AsymmetryB;
+                float shift = RiverBedMorphology.ThalwegShift * c.HalfWidth * asym;
+                float Hgt(float x) { RiverBedMorphology.CrossSection(c, x, asym, out float ex, out float pd, out _, out _); return -(pd + ex); }
+                foreach (int sd in new[] { 1, -1 })
+                {
+                    bool outer = sd > 0;
+                    float wSide = outer ? c.HalfWidth - shift : c.HalfWidth + shift;
+                    float bSide = c.BankWidth * (outer ? 1f - RiverBedMorphology.OuterBankShare * asym : 1f + RiverBedMorphology.InnerBankShare * asym);
+                    foreach (float x in new[] { shift, shift + sd * wSide, shift + sd * (wSide + bSide) })
+                    {
+                        boundariesChecked++;
+                        float jump = Math.Abs(Hgt(x + 1e-3f) - Hgt(x - 1e-3f));
+                        float big = Math.Abs((Hgt(x + 1.5f) - Hgt(x + 0.5f)) - (Hgt(x - 0.5f) - Hgt(x - 1.5f)));
+                        float small = Math.Abs((Hgt(x + 0.075f) - Hgt(x + 0.025f)) - (Hgt(x - 0.025f) - Hgt(x - 0.075f))) * 20f;
+                        if (jump > 0.01f || small > 0.2f * big + 0.005f) boundaryViolations++;
+                    }
+                }
+                // transition abruptness along the curve: |d half width| per km between A and B of the segment
+                double len = (net.Invert(g.A) - p).Magnitude * R / 1000.0;
+                if (len > 0.1) transitions.Add(Math.Abs(g.ChannelHalfWidthB - g.ChannelHalfWidthA) / len);
+            }
+            ratios.Sort(); ratiosBend.Sort(); transitions.Sort();
+            log.AppendLine(string.Format(Inv, "statistics over {0} sections (channel half width >= 10 m): bank width ratio (long / short) p50 {1:0.00} p90 {2:0.00}; in bends (|kappa_n| > 0.6): {3} sections, ratio p50 {4:0.00}, symmetric (< 1.05) {5} ({6:0.0} %); boundary continuity checks {7}, violations {8}; |d channel half width| per km p50 {9:0.0} p90 {10:0.0} max {11:0.0} m/km",
+                sample.Count, Pct(ratios, 0.5), Pct(ratios, 0.9), bends, Pct(ratiosBend, 0.5), symmetricInBends, bends > 0 ? 100.0 * symmetricInBends / bends : 0, boundariesChecked, boundaryViolations, Pct(transitions, 0.5), Pct(transitions, 0.9), transitions.Count > 0 ? transitions.Last() : 0));
+            foreach (KeyValuePair<string, List<double[]>> kv in groups.OrderBy(k => k.Key))
+            {
+                // mean pairwise correlation of normalized profiles within the group (up to 200 pairs): a warning above 0.98
+                List<double[]> list = kv.Value;
+                double sum = 0; int pairs = 0;
+                for (int i = 0; i < list.Count && pairs < 400; i += Math.Max(1, list.Count / 20))
+                    for (int j = i + 1; j < list.Count && pairs < 400; j += Math.Max(1, list.Count / 20)) { sum += Correlation(list[i], list[j]); pairs++; }
+                double mean = pairs > 0 ? sum / pairs : double.NaN;
+                log.AppendLine(string.Format(Inv, "  group {0}: {1} sections, mean pairwise correlation of normalized bed profiles {2:0.000}{3}", kv.Key, list.Count, mean, mean > 0.98 ? " (WARNING: similar profiles; inspect the plotted sections of this group)" : ""));
+                // plot three of them
+                var plot = new Plot(900, 300);
+                plot.X0 = 0; plot.X1 = 63; plot.Y0 = -1.3; plot.Y1 = 0.1; plot.Axes();
+                for (int k = 0; k < Math.Min(3, list.Count); k++)
+                {
+                    double[] pr = list[k * list.Count / Math.Max(1, Math.Min(3, list.Count))];
+                    plot.Curve(Enumerable.Range(0, 64).Select(i => (double)i).ToList(), pr.Select(v => -v).ToList(), k == 0 ? Black : k == 1 ? Red : Blue, 1);
+                }
+                plot.Save(Path.Combine(Out, $"group_{kv.Key.Replace('/', '_')}.png"));
+            }
+        }
+
+        static double Pct(List<double> sorted, double p) => sorted.Count == 0 ? double.NaN : sorted[Math.Min(sorted.Count - 1, (int)(sorted.Count * p))];
+
+        static double Correlation(double[] a, double[] b)
+        {
+            double ma = a.Average(), mb = b.Average(), sab = 0, saa = 0, sbb = 0;
+            for (int i = 0; i < a.Length; i++) { sab += (a[i] - ma) * (b[i] - mb); saa += (a[i] - ma) * (a[i] - ma); sbb += (b[i] - mb) * (b[i] - mb); }
+            return saa > 0 && sbb > 0 ? sab / Math.Sqrt(saa * sbb) : 1.0;
+        }
+
+        // ---------------------------------------------------------------- run
+        [Test]
+        public void Run()
+        {
+            UnityEngine.TestTools.LogAssert.ignoreFailingMessages = true;
+            Directory.CreateDirectory(Out);
+            on = new PlanetInstance(new PlanetDefinition { seed = Seed });
+            before = new PlanetInstance(new PlanetDefinition { seed = Seed, erosionStrength = 0f });
+            net = on.Height.SurfaceDetail.Landforms.Valleys;
+            R = on.Scale.RadiusMeters;
+            HydrologyResult h = net.Hydrology;
+            log.AppendLine(string.Format(Inv, "Default configuration, seed {0}: {1} channel cells ({2} valley cells), {3} segments, network built in {4:0} ms; land cells {5}", Seed, net.ChannelCount, net.ValleyCount, net.SegmentCount, net.BuildMilliseconds, h.LandCellCount));
+
+            // Development histogram over channel cells.
+            var hist = new int[11]; int channelCells = 0;
+            for (int c = 0; c < h.Grid.CellCount; c++) { if (!net.IsChannel(c)) continue; channelCells++; hist[Math.Min(10, (int)(net.NodeSection(c).Development * 10))]++; }
+            log.AppendLine("development histogram over channel cells (0.0-0.1 .. 1.0): " + string.Join(" ", hist));
+            int plainCells = 0, depressionCells = 0, alluvialCells = 0; float widestPlain = 0f;
+            for (int c = 0; c < h.Grid.CellCount; c++)
+            {
+                if (!net.IsChannel(c)) continue;
+                ChannelSection sec = net.NodeSection(c);
+                if (sec.FloodplainHalfWidth > 0f) { plainCells++; widestPlain = Math.Max(widestPlain, sec.FloodplainHalfWidth); }
+                if (sec.Alluvial > 0.5f) alluvialCells++;
+                if (h.IsInDepression(c)) depressionCells++;
+            }
+            log.AppendLine(string.Format(Inv, "channel cells with a floodplain {0} (widest half width {1:0} m), alluvial regime (> 0.5) {2}, in a hydrology depression {3}, of {4}", plainCells, widestPlain, alluvialCells, depressionCells, channelCells));
+
+            // Locations.
+            int torrent = -1, gorge = -1, plain = -1, meander = -1, head = -1, confluence = -1, mouth = -1;
+            float torrentScore = -1, gorgeI = -1, plainScore = -1, meanderK = -1, headScore = -1, confScore = -1, mouthScore = -1;
+            var upstream = new int[h.Grid.CellCount];
+            for (int c = 0; c < h.Grid.CellCount; c++) { int r = h.GetReceiver(c); if (r >= 0 && net.IsChannel(c)) upstream[r]++; }
+            for (int s = 0; s < net.SegmentCount; s++)
+            {
+                ValleyNetwork.Segment g = net.GetSegment(s);
+                if (Math.Abs(g.B.y) > 0.75) continue;
+                int cell = g.Cell;
+                ChannelSection sec = net.NodeSection(cell);
+                if (g.ChannelHalfWidthB <= 0f) continue;
+                bool aboveSea = HeightM(on, net.Invert(g.B)) > 200f;
+                float score = sec.Rocky * g.DevelopmentB * (g.ValleyB > 0.5f ? 1f : 0.5f) * Mathf.Min(1f, g.ChannelHalfWidthB / 30f);
+                if (score > torrentScore && aboveSea) { torrentScore = score; torrent = s; }
+                if (g.IncisionB > gorgeI && aboveSea) { gorgeI = g.IncisionB; gorge = s; }
+                if (g.ValleyB <= 0f && (aboveSea || h.GetReceiver(cell) >= 0 && !h.IsLand(h.GetReceiver(cell))))
+                {
+                    float ps = sec.Alluvial * g.ChannelHalfWidthB * (sec.FloodplainHalfWidth > 0f ? 1f : 0.1f);
+                    if (ps > plainScore) { plainScore = ps; plain = s; }
+                    float k = Math.Abs(RiverBedMorphology.NormalizedCurvature(g.CurvatureB)) * Mathf.Min(1f, g.ChannelHalfWidthB / 100f) * (sec.Alluvial > 0.5f ? 1f : 0f);
+                    if (k > meanderK) { meanderK = k; meander = s; }
+                    int first = s - (s % ValleyNetwork.Subdivisions);
+                    if (upstream[cell] == 0 && s == first + ValleyNetwork.Subdivisions - 1 && sec.Development > 0.25f && sec.Development < 0.7f && sec.Development > headScore) { headScore = sec.Development; head = s; }
+                    if (upstream[cell] >= 2 && s == first + ValleyNetwork.Subdivisions - 1)
+                    {
+                        float cs = g.ChannelHalfWidthB * sec.Alluvial;
+                        if (cs > confScore) { confScore = cs; confluence = s; }
+                    }
+                    int r = h.GetReceiver(cell);
+                    if (r >= 0 && !h.IsLand(r) && s == first + ValleyNetwork.Subdivisions - 1 && g.Cells > mouthScore && HeightM(on, net.Invert(net.GetSegment(first).A)) > 0f) { mouthScore = g.Cells; mouth = s; }
+                }
+            }
+            var locs = new List<Loc>();
+            if (torrent >= 0) locs.Add(Make("torrent", torrent));
+            if (gorge >= 0) locs.Add(Make("gorge", gorge));
+            if (plain >= 0) locs.Add(Make("plain", plain));
+            if (meander >= 0) locs.Add(Make("meander", meander));
+            if (head >= 0) locs.Add(Make("head", head));
+            if (confluence >= 0) locs.Add(Make("confluence", confluence));
+            if (mouth >= 0)
+            {
+                // the mouth location: the last curve's segment still above the sea
+                int first = mouth - (mouth % ValleyNetwork.Subdivisions);
+                int pick = first;
+                for (int s = first; s <= mouth; s++) if (HeightM(on, net.Invert(net.GetSegment(s).B)) > 0f) pick = s;
+                locs.Add(Make("mouth", pick));
+            }
+            foreach (Loc l in locs)
+            {
+                CrossSection(l);
+                Longitudinal(l);
+            }
+            if (confluence >= 0) ConfluenceScan(locs.First(l => l.Name == "confluence"), "confluence");
+            if (meander >= 0) ConfluenceScan(locs.First(l => l.Name == "meander"), "meander");
+            Statistics();
+
+            // Hydrology identity and outlet changes vs a G.2B world.
+            HydrologyResult legacy = new HydrologySystem().Compute(new HydrologyGrid(128), on);
+            int diff = 0; for (int c = 0; c < legacy.Grid.CellCount; c++) if (legacy.GetReceiver(c) != h.GetReceiver(c) || legacy.IsLand(c) != h.IsLand(c)) diff++;
+            var g2b = new PlanetInstance(new PlanetDefinition { seed = Seed, riverBeds = 0 });
+            HydrologyResult b128 = new HydrologySystem().Compute(new HydrologyGrid(128), g2b);
+            int changed = 0, land = 0; for (int c = 0; c < b128.Grid.CellCount; c++) { if (!b128.IsLand(c)) continue; land++; if (b128.GetReceiver(c) != legacy.GetReceiver(c)) changed++; }
+            log.AppendLine(string.Format(Inv, "hydrology identity at 128: {0} cells differ between the channel network's hydrology and the river network's (0 expected); vs the G.2B world of the same seed: {1} / {2} land receivers changed ({3:0.00} %), basins {4} vs {5}", diff, changed, land, 100.0 * changed / land, legacy.BasinCount, b128.BasinCount));
+
+            // Spine snapping with the river surface (default density 100 %).
+            {
+                var c = new WorldConfiguration();
+                c.Hydrology.riverNetworkThreshold = 1e-5f;
+                var system = new RiverNetworkSystem();
+                RiverNetwork network = system.Build(legacy, 1e-5f);
+                system.BuildPaths(network, c.Rivers.SmoothingIterations);
+                var faces = new Mesh[CubeSphereGenerator.FaceCount];
+                var mb = new PlanetMeshBuilder();
+                for (int f = 0; f < faces.Length; f++) { faces[f] = new Mesh(); mb.BuildFace(faces[f], f, on, PlanetColorRamp.CreateDefault()); }
+                var sampler = new PlanetSurfaceSampler();
+                sampler.Capture(faces, on.Definition.resolution);
+                var spine = new RiverRibbonBuilder();
+                spine.BuildGeometry(network, sampler, on, c.Rivers, null, null, false);
+                var corridors = new RiverCorridorMap(network, net, R);
+                var surface = new RiverSurface();
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                surface.Rebuild(on, network, spine, corridors, 1f, 0);
+                double singleMs = sw.Elapsed.TotalMilliseconds;
+                var surfaceMt = new RiverSurface();
+                sw.Restart();
+                surfaceMt.Rebuild(on, network, spine, corridors, 1f, Environment.ProcessorCount);
+                while (!surfaceMt.PrepassComplete) { surfaceMt.Tick(new RiverSurfaceView(Vector3d.Up * (on.Radius * 1.5), 1000f, 1000f)); }
+                double multiMs = sw.Elapsed.TotalMilliseconds;
+                log.AppendLine(string.Format(Inv, "river surface rebuild + prepass: {0:0} ms single-threaded, {1:0} ms with {2} workers (prepass CPU {3:0} ms)", singleMs, multiMs, Environment.ProcessorCount, surfaceMt.Diagnostics.PrepassMilliseconds));
+                surfaceMt.Dispose();
+                RiverSurfaceDiagnostics d = surface.Diagnostics;
+                int outside = 0, snappedCount = 0; var hws = new List<float>();
+                for (int i = 0; i < surface.SpineSampleCount; i++) { surface.GetSpineSample(i, out _, out float hw, out float w, out _, out _); if (w < 0.999f) outside++; else { snappedCount++; hws.Add((float)(hw * R)); } }
+                hws.Sort();
+                log.AppendLine(string.Format(Inv, "river surface (density 100 %): {0} rivers, {1} ribbons, {2} spine samples, snapped {3} ({4:0.0} %), outside any channel {5} ({6:0.0} %); corridor map channel nodes {7} / {8}, matched {9}, mismatched {10}; displayed half width p50 {11:0} m p90 {12:0} m max {13:0} m; rebuild + prepass {14:0} ms (prepass CPU {15:0} ms)",
+                    network.RiverCount, spine.RibbonCount, surface.SpineSampleCount, snappedCount, 100.0 * snappedCount / surface.SpineSampleCount, outside, 100.0 * outside / surface.SpineSampleCount,
+                    corridors.ChannelNodes, corridors.NodeCount, corridors.MatchedLinks, corridors.MismatchedLinks, Pct(hws.Select(v => (double)v).ToList(), 0.5), Pct(hws.Select(v => (double)v).ToList(), 0.9), hws.Count > 0 ? hws.Last() : 0, sw.Elapsed.TotalMilliseconds, d.PrepassMilliseconds));
+                surface.Dispose();
+                foreach (Mesh m in faces) UnityEngine.Object.DestroyImmediate(m);
+            }
+
+            // Performance.
+            {
+                var probes = new List<Vector3d>();
+                for (int k = 0; k < 100000; k++) { double y = 1.0 - 2.0 * (k + 0.5) / 100000, r = Math.Sqrt(1.0 - y * y), phi = k * 2.399963229728653; probes.Add(new Vector3d(r * Math.Cos(phi), y, r * Math.Sin(phi))); }
+                double Time(Func<Vector3d, float> f) { float sink = 0; foreach (Vector3d dd in probes) sink += f(dd); var sw = System.Diagnostics.Stopwatch.StartNew(); for (int rep = 0; rep < 3; rep++) foreach (Vector3d dd in probes) sink += f(dd); return sw.Elapsed.TotalMilliseconds * 1000.0 / (3 * probes.Count) + (float.IsNaN(sink) ? 1 : 0); }
+                double onUs = Math.Min(Time(dd => on.Height.GetElevation(dd)), Time(dd => on.Height.GetElevation(dd)));
+                double offUs = Math.Min(Time(dd => g2b.Height.GetElevation(dd)), Time(dd => g2b.Height.GetElevation(dd)));
+                var sw2 = System.Diagnostics.Stopwatch.StartNew(); var fresh = new PlanetInstance(new PlanetDefinition { seed = Seed }); double ms = sw2.Elapsed.TotalMilliseconds;
+                sw2.Restart(); var fresh0 = new PlanetInstance(new PlanetDefinition { seed = Seed, riverBeds = 0 }); double ms0 = sw2.Elapsed.TotalMilliseconds;
+                log.AppendLine(string.Format(Inv, "performance: canonical elevation {0:0.00} us (G.2E) vs {1:0.00} us (G.2B) ({2:+0.0;-0.0} %); planet construction {3:0} ms (network {4:0} ms) vs {5:0} ms (network {6:0} ms)", onUs, offUs, (onUs - offUs) / offUs * 100, ms, fresh.Height.SurfaceDetail.Landforms.Valleys.BuildMilliseconds, ms0, fresh0.Height.SurfaceDetail.Landforms.Valleys.BuildMilliseconds));
+            }
+            File.WriteAllText(Path.Combine(Out, "diagnostics.txt"), log.ToString());
+            Debug.Log("G2EDIAG\n" + log);
+        }
+    }
+}

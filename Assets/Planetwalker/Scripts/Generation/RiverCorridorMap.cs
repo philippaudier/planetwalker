@@ -46,6 +46,8 @@ namespace Planetwalker.Generation
             public float HalfWidthMeters, IncisionHalfWidthMeters, IncisionMeters;
             /// <summary>Carved valley depth of the corridor at the projection (meters, G.1.1).</summary>
             public float DepthMeters;
+            /// <summary>River bed at the projection (V0.2.0G.2E, meters; 0 without beds): active channel half width and thalweg depth, bank width, floodplain half width.</summary>
+            public float ChannelHalfWidthMeters, ChannelDepthMeters, BankWidthMeters, FloodplainHalfWidthMeters;
             public int Segment;
         }
 
@@ -92,15 +94,26 @@ namespace Planetwalker.Generation
                     knots[k0 + 2 * i] = channel ? 1f : 0f;
                     if (i + 1 < points)
                     {
+                        // The curve of a channel cell runs to the midpoint with its receiver when that one is a channel, and to
+                        // the receiver's center otherwise (the valley fades there), and stops at the node when the receiver is
+                        // the sea: the river is on it as long as it flows to the same land receiver, channel or not
+                        // (V0.2.0G.2D.1: a trench never stays empty along its last cell).
                         int next = valleyCells[c0 + i + 1];
-                        bool linked = channel && valleys.IsChannel(next) && (next == cell || carved.GetReceiver(cell) == next);
+                        // V0.2.0G.2E (whole network): the terminal curve runs to the sea receiver's center: the mouth is on it.
+                        bool linked = channel && (next == cell || (carved.GetReceiver(cell) == next && (carved.IsLand(next) || valleys.WholeNetwork)));
                         knots[k0 + 2 * i + 1] = linked ? 1f : 0f;
-                        if (channel && valleys.IsChannel(next))
+                        if (channel)
                         {
                             if (linked) MatchedLinks++; else MismatchedLinks++;
                         }
                     }
                     if (channel) ChannelNodes++;
+                }
+                // V0.2.0G.2E: the sea mouth point itself sits on the terminal curve (which runs to the sea cell's center):
+                // weight 1 through the mouth, no fade over the last half cell.
+                if (valleys.WholeNetwork && points >= 2 && data.MouthCell >= 0 && !carved.IsLand(valleyCells[c0 + points - 1]) && knots[k0 + 2 * points - 3] >= 1f)
+                {
+                    knots[k0 + 2 * points - 2] = 1f;
                 }
                 NodeCount += points;
             }
@@ -134,7 +147,7 @@ namespace Planetwalker.Generation
         /// <summary>Trajectory points lying on a carved channel cell.</summary>
         public int ChannelNodes { get; }
 
-        /// <summary>Links between two channel points whose legacy flow is also the carved flow (snapped) / is not (faded).</summary>
+        /// <summary>Links out of a channel point whose legacy flow is also the carved flow (snapped) / is not (faded).</summary>
         public int MatchedLinks { get; }
 
         public int MismatchedLinks { get; }
@@ -152,7 +165,16 @@ namespace Planetwalker.Generation
             float x = Mathf.Clamp(param * 2f, 0f, count - 1);
             int a = Mathf.Min((int)x, count - 2);
             float t = x - a;
-            return knots[k0 + a] + (knots[k0 + a + 1] - knots[k0 + a]) * t;
+            float weight = knots[k0 + a] + (knots[k0 + a + 1] - knots[k0 + a]) * t;
+            // V0.2.0G.2E: past a sea mouth (whose point is on the terminal curve) the legacy mouth extension continues to the
+            // legacy sea on its own: the weight fades over half a node (a tributary's confluence sample, one node past its
+            // junction, keeps its clamp onto the trunk's curve).
+            if (valleys != null && valleys.WholeNetwork && weight > 0f && network.GetRiver(river).MouthCell >= 0)
+            {
+                float beyond = param * 2f - (count - 1);
+                if (beyond > 0f) weight *= Mathf.Max(0f, 1f - beyond);
+            }
+            return weight;
         }
 
         /// <summary>
@@ -230,6 +252,10 @@ namespace Planetwalker.Generation
             projection.IncisionHalfWidthMeters = b.IncisionHalfWidthA + (b.IncisionHalfWidthB - b.IncisionHalfWidthA) * ft;
             projection.IncisionMeters = b.IncisionA + (b.IncisionB - b.IncisionA) * ft;
             projection.DepthMeters = b.DepthA + (b.DepthB - b.DepthA) * ft;
+            projection.ChannelHalfWidthMeters = b.ChannelHalfWidthA + (b.ChannelHalfWidthB - b.ChannelHalfWidthA) * ft;
+            projection.ChannelDepthMeters = b.ChannelDepthA + (b.ChannelDepthB - b.ChannelDepthA) * ft;
+            projection.BankWidthMeters = b.BankWidthA + (b.BankWidthB - b.BankWidthA) * ft;
+            projection.FloodplainHalfWidthMeters = b.FloodplainHalfWidthA + (b.FloodplainHalfWidthB - b.FloodplainHalfWidthA) * ft;
             return weight >= 1f ? d : (legacy + (d - legacy) * weight).Normalized;
         }
 

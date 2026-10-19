@@ -1,0 +1,1 @@
+carved channel cells 674: with a legacy river on them 674 (100.0 %), same receiver in both drainages 666; legacy river cells in the ranges 1288: on a carved channel 674, next to one 580, elsewhere 34; land cells with the same receiver in both drainages 27831 / 28422 (97.9 %)

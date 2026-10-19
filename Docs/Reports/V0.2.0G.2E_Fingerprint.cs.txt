@@ -1,0 +1,97 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
+using NUnit.Framework;
+using Planetwalker.Core;
+using Planetwalker.Generation;
+using UnityEngine;
+
+namespace Planetwalker.Tests
+{
+    /// <summary>
+    /// G.2E step 0: fingerprint of the V0.2.0G.2B terrain, recorded on the unmodified tree before any G.2E change. The
+    /// G.2E tests compare a riverBeds = 0 world against it (bit-identical compatibility of archived worlds).
+    /// </summary>
+    public class G2EFingerprint
+    {
+        const string Out = @"C:\Users\Philippe\Documents\Programming\Unity\Projects\planetwalker\Docs\Reports\V0.2.0G.2E_Fingerprint_G2B.txt";
+        static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+
+        static IEnumerable<Vector3d> Spiral(int count)
+        {
+            for (int k = 0; k < count; k++)
+            {
+                double y = 1.0 - 2.0 * (k + 0.5) / count, r = Math.Sqrt(1.0 - y * y), phi = k * 2.399963229728653;
+                yield return new Vector3d(r * Math.Cos(phi), y, r * Math.Sin(phi));
+            }
+        }
+
+        sealed class Fnv
+        {
+            ulong h = 14695981039346656037UL;
+            public void Add(int v) { for (int i = 0; i < 4; i++) { h ^= (byte)(v >> (8 * i)); h *= 1099511628211UL; } }
+            public void Add(float v) => Add(BitConverter.SingleToInt32Bits(v));
+            public void Add(double v) { long b = BitConverter.DoubleToInt64Bits(v); Add((int)b); Add((int)(b >> 32)); }
+            public string Hex => h.ToString("x16");
+        }
+
+        static void Fingerprint(StringBuilder log, string name, PlanetDefinition def)
+        {
+            var planet = new PlanetInstance(def);
+            var canonical = new Fnv(); var legacy = new Fnv();
+            float spacing = Mathf.Max(Mathf.PI * 0.5f / 128, planet.LegacySampleSpacing);
+            int i = 0; var firsts = new StringBuilder();
+            foreach (Vector3d d in Spiral(20000))
+            {
+                float e = planet.Height.GetElevation(d);
+                float l = planet.GetLegacyElevation(d.ToVector3(), Mathf.PI * 0.5f / 128);
+                canonical.Add(e); legacy.Add(l);
+                if (i < 8) firsts.Append(string.Format(Inv, " {0:R}/{1:R}", e, l));
+                i++;
+            }
+            log.AppendLine(string.Format(Inv, "{0}: canonical {1} legacy128 {2} spacing {3:R} first{4}", name, canonical.Hex, legacy.Hex, spacing, firsts));
+            foreach (int res in new[] { 64, 128 })
+            {
+                HydrologyResult h = new HydrologySystem().Compute(new HydrologyGrid(res), planet);
+                var rec = new Fnv(); var land = new Fnv(); var acc = new Fnv();
+                for (int c = 0; c < h.Grid.CellCount; c++) { rec.Add(h.GetReceiver(c)); land.Add(h.IsLand(c) ? 1 : 0); acc.Add(h.GetAccumulation(c)); }
+                log.AppendLine(string.Format(Inv, "{0}: hydrology {1}: receivers {2} land {3} accumulation {4} basins {5} depressions {6} landCells {7} outlet {8}",
+                    name, res, rec.Hex, land.Hex, acc.Hex, h.BasinCount, h.DepressionCount, h.LandCellCount, h.EndorheicOutlet));
+            }
+            TerrainDetail detail = planet.Height.SurfaceDetail;
+            ValleyNetwork net = detail?.Landforms?.Valleys;
+            if (net != null)
+            {
+                var seg = new Fnv();
+                for (int s = 0; s < net.SegmentCount; s++)
+                {
+                    ValleyNetwork.Segment g = net.GetSegment(s);
+                    seg.Add(g.A.x); seg.Add(g.A.y); seg.Add(g.A.z); seg.Add(g.B.x); seg.Add(g.B.y); seg.Add(g.B.z);
+                    seg.Add(g.HalfWidthA); seg.Add(g.HalfWidthB); seg.Add(g.DepthA); seg.Add(g.DepthB); seg.Add(g.IncisionA); seg.Add(g.IncisionB); seg.Add(g.Cell);
+                }
+                var vrec = new Fnv();
+                for (int c = 0; c < net.Hydrology.Grid.CellCount; c++) vrec.Add(net.Hydrology.GetReceiver(c));
+                log.AppendLine(string.Format(Inv, "{0}: valleys: segments {1} channels {2} hash {3} receivers {4}", name, net.SegmentCount, net.ChannelCount, seg.Hex, vrec.Hex));
+            }
+            log.AppendLine(string.Format(Inv, "{0}: landFraction {1:R} minElevation {2:R} maxElevation {3:R}", name, planet.LandFraction, planet.MinElevation, planet.MaxElevation));
+        }
+
+        [Test]
+        public void Run()
+        {
+            var log = new StringBuilder();
+            log.AppendLine("# V0.2.0G.2B terrain fingerprint (recorded before G.2E on the unmodified tree): FNV-1a 64 over float bits of 20000 spiral directions");
+            Fingerprint(log, "default1337", new PlanetDefinition { seed = 1337 });
+            Fingerprint(log, "default310929", new PlanetDefinition { seed = 310929 });
+            PlanetDefinition tweaked = WorldArchiveTestUtil.Tweaked(536452, flipFlags: false).Terrain.Clone();
+            Fingerprint(log, "tweaked536452", tweaked);
+            PlanetDefinition tweakedFluvial = tweaked.Clone(); tweakedFluvial.seed = 1337; tweakedFluvial.erosionStrength = 1f; tweakedFluvial.erosionModel = 1;
+            Fingerprint(log, "tweaked1337fluvial", tweakedFluvial);
+            PlanetDefinition noErosion = new PlanetDefinition { seed = 1337, erosionStrength = 0f };
+            Fingerprint(log, "default1337noErosion", noErosion);
+            System.IO.File.WriteAllText(Out, log.ToString());
+            Debug.Log("FINGERPRINT\n" + log);
+        }
+    }
+}
